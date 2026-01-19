@@ -1,18 +1,19 @@
 #!/bin/bash
+# 实现单人脸的属性编辑，
 
 export PYTHONPATH="${PWD}"
 
 # 1. Input args
-SD_PATH=$1  # /Your/Path/To/sd-v1-4-full-ema.ckpt
-PROMPT_FILE=$2  # /Your/Path/To/Prompt_File.txt, e.g. ./infer_images/example_prompt.txt
-PROJECT_FOLDER=$3  # project folder name under ./logs/, e.g. training2023-06-20T14-58-59_celebbasis
+SD_PATH=$1  # .ckpt权重文件的路径
+PROMPT_FILE=$2  # 提示文件.txt的路径, e.g. ./infer_images/example_prompt.txt
+PROJECT_FOLDER=$3  # ./logs/下的项目文件名, e.g. training2023-06-20T14-58-59_celebbasis
 INTERPOLATION_ARGS=$4
 LORA_FINETUNED=${5: False}
-N_SAMPLES=${6:-1}  # n_samples per text (equals to batch_size), default: 8
-TEST_STEP=${7:-149999}  # the step of saved weights, default: 799
-LORA_SCALE=${8:-0.1}
-IMG_PATH=${9:-""}
-EDIT_ATTR=${10:-"beard"}
+N_SAMPLES=${6:-1}  # 每个文本的采样数 (相当于 batch_size), default: 8
+TEST_STEP=${7:-149999}  # 我理解成是微调过程中，保存权重的时间步, default: 799
+LORA_SCALE=${8:-0.1}  # lora微调的影响因子
+IMG_PATH=${9:-""} # 要编辑的图片（需要存在于/hxp/zy/PreciseControl/logs/1/configs中）
+EDIT_ATTR=${10:-"beard"}  # 要编辑的属性
 LORA_PATH2=${10:-""}
 LORA2_SCALE=${11:-0.1}
 LORA_PATH3=${12:-""}
@@ -20,7 +21,7 @@ LORA3_SCALE=${13:-0.1}
 
 # ------------------------------------------------------
 
-# 2. Edit or modify the following settings as you need
+# 2. 根据需要编辑或修改以下设置
 step_list=(${TEST_STEP})  # default: (799), e.g. (99 199 299 399)
 eval_id1_list=(0)  # the id of the 1st person, e.g. (0 1 2 3 4)
 eval_id2_list=(0) # the id of the 2nd person, e.g. (0 1 2 3 4)
@@ -71,6 +72,7 @@ for (( i = 0 ; i < ${#eval_id1_list[@]} ; i++ )) do
 
 done
 #################### END #######################
+# 下面的提示词，不被用到代码中
 
 #prompt_list=(
 #"Elon Musk talks with Mr. Bean"

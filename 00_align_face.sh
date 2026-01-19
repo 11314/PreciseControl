@@ -11,7 +11,7 @@ OUT_FOLDER=$2  # /Your/Path/To/Images/ffhq
 # build nms.c for PIPNet
 cd ./evaluation/face_align/PIPNet/FaceBoxesV2/utils/ && chmod +x make.sh && bash ./make.sh && cd - || exit
 
-# run align and crop
+# run align and crop/对齐和裁剪
 python ./evaluation/face_align/PIPNet/start_align.py  \
   --in_folder "${IN_FOLDER}"  \
   --out_folder "${OUT_FOLDER}"

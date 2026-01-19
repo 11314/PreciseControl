@@ -185,7 +185,7 @@ class FrozenOpenCLIPEmbedder(AbstractEncoder):
                  ):
         super().__init__()
         assert layer in self.LAYERS
-        model, _, _ = open_clip.create_model_and_transforms(arch, device=torch.device('cpu'), pretrained=version)
+        model, _, _ = open_clip.create_model_and_transforms(arch, device=torch.device('cpu'), pretrained="/hxp/cache/huggingface/hub/models--laion--CLIP-ViT-H-14-laion2B-s32B-b79K/snapshots/manual/open_clip_pytorch_model.bin")
         del model.visual
         self.model = model
         # added for embedding managerid

@@ -210,7 +210,7 @@ def worker_init_fn(_):
 
     if isinstance(dataset, Txt2ImgIterableBaseDataset):
         split_size = dataset.num_records // worker_info.num_workers
-        # reset num_records to the true number to retain reliable length information
+        # reset num_records to the true number to retain reliable length information/将num_records重置为真实数字，以保留可靠的长度信息
         dataset.sample_ids = dataset.valid_ids[worker_id * split_size:(worker_id + 1) * split_size]
         current_id = np.random.choice(len(np.random.get_state()[1]), 1)
         return np.random.seed(np.random.get_state()[1][current_id] + worker_id)
@@ -281,7 +281,7 @@ class DataModuleFromConfig(pl.LightningDataModule):
         else:
             init_fn = None
 
-        # do not shuffle dataloader for iterable dataset
+        # do not shuffle dataloader for iterable dataset/对可迭代数据集不shuffle数据加载器
         shuffle = shuffle and (not is_iterable_dataset)
 
         return DataLoader(self.datasets["test"], batch_size=self.batch_size,
@@ -315,7 +315,7 @@ class SetupCallback(Callback):
 
     def on_pretrain_routine_start(self, trainer, pl_module):
         if trainer.global_rank == 0:
-            # Create logdirs and save configs
+            # Create logdirs and save configs/创建日志目录并保存配置
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.ckptdir, exist_ok=True)
             os.makedirs(self.cfgdir, exist_ok=True)
@@ -334,7 +334,7 @@ class SetupCallback(Callback):
                            os.path.join(self.cfgdir, "{}-lightning.yaml".format(self.now)))
 
         else:
-            # ModelCheckpoint callback created log directory --- remove it
+            # ModelCheckpoint callback created log directory --- remove it/ModelCheckpoint回调创建的日志目录——删除它
             if not self.resume and os.path.exists(self.logdir):
                 dst, name = os.path.split(self.logdir)
                 dst = os.path.join(dst, "child_runs", name)
@@ -454,7 +454,7 @@ class ImageLogger(Callback):
 class CUDACallback(Callback):
     # see https://github.com/SeanNaren/minGPT/blob/master/mingpt/callback.py
     def on_train_epoch_start(self, trainer, pl_module):
-        # Reset the memory use counter
+        # Reset the memory use counter/重置内存使用计数器
         torch.cuda.reset_peak_memory_stats(trainer.root_gpu)
         torch.cuda.synchronize(trainer.root_gpu)
         self.start_time = time.time()
@@ -492,11 +492,11 @@ class ModeSwapCallback(Callback):
 
 
 if __name__ == "__main__":
-    # custom parser to specify config files, train, test and debug mode,
+    # custom parser to specify config files, train, test and debug mode,/自定义解析器指定配置文件，训练，测试和调试模式，
     # postfix, resume.
-    # `--key value` arguments are interpreted as arguments to the trainer.
-    # `nested.key=value` arguments are interpreted as config parameters.
-    # configs are merged from left-to-right followed by command line parameters.
+    # `--key value` arguments are interpreted as arguments to the trainer./‘——key value ’参数被解释为训练器的参数。
+    # `nested.key=value` arguments are interpreted as config parameters./参数被解释为配置参数。
+    # configs are merged from left-to-right followed by command line parameters./从左到右合并配置，后面跟着命令行参数
 
     # model:
     #   base_learning_rate: float
@@ -535,9 +535,9 @@ if __name__ == "__main__":
 
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
 
-    # add cwd for convenience and to make classes in this file available when
-    # running as `python main.py`
-    # (in particular `main.DataModuleFromConfig`)
+    # add cwd for convenience and to make classes in this file available when/添加CWD是为了方便，并使这个文件中的类在
+    # running as `python main.py`/以‘ python main.py ’运行
+    # (in particular `main.DataModuleFromConfig`)/特别是"main.DataModuleFromConfig"
     sys.path.append(os.getcwd())
 
     parser = get_parser()
@@ -583,7 +583,7 @@ if __name__ == "__main__":
             now = os.path.basename(os.path.normpath(opt.data_root)) + now
 
         nowname = now + name + opt.postfix
-        # changing logdir name
+        # changing logdir name/修改logdir名称
         if(opt.name != "celebbasis"):
             nowname = os.path.basename(os.path.normpath(opt.data_root))
             mowname_list = nowname.split("_")
@@ -598,14 +598,14 @@ if __name__ == "__main__":
     seed_everything(opt.seed)
 
     try:
-        # init and save configs
+        # init and save configs/初始化并保存配置
         configs = [OmegaConf.load(cfg) for cfg in opt.base]
         cli = OmegaConf.from_dotlist(unknown)
         config = OmegaConf.merge(*configs, cli)
         lightning_config = config.pop("lightning", OmegaConf.create())
-        # merge trainer cli with config
+        # merge trainer cli with config/合并训练器cli与配置
         trainer_config = lightning_config.get("trainer", OmegaConf.create())
-        # default to ddp
+        # default to ddp/默认为DDP
         trainer_config["accelerator"] = "ddp"
         for k in nondefault_trainer_args(opt):
             trainer_config[k] = getattr(opt, k)
@@ -634,10 +634,10 @@ if __name__ == "__main__":
         else:
             model = instantiate_from_config(config.model)
 
-        # trainer and callbacks
+        # trainer and callbacks/训练器和回调
         trainer_kwargs = dict()
 
-        # default logger configs
+        # default logger configs/默认记录器配置
         default_logger_cfgs = {
             "wandb": {
                 "target": "pytorch_lightning.loggers.WandbLogger",
@@ -665,7 +665,7 @@ if __name__ == "__main__":
         trainer_kwargs["logger"] = instantiate_from_config(logger_cfg)
 
         # modelcheckpoint - use TrainResult/EvalResult(checkpoint_on=metric) to
-        # specify which metric is used to determine best models
+        # specify which metric is used to determine best models/指定使用哪个度量来确定最佳模型
         default_modelckpt_cfg = {
             "target": "pytorch_lightning.callbacks.ModelCheckpoint",
             "params": {
@@ -689,7 +689,7 @@ if __name__ == "__main__":
         if version.parse(pl.__version__) < version.parse('1.4.0'):
             trainer_kwargs["checkpoint_callback"] = instantiate_from_config(modelckpt_cfg)
 
-        # add callback which sets up log directory
+        # add callback which sets up log directory/添加设置日志目录的回调
         default_callbacks_cfg = {
             "setup_callback": {
                 "target": "main.SetupCallback",

@@ -3,9 +3,9 @@
 export PYTHONPATH="${PWD}"
 
 # 1. Input args
-SD_PATH=$1  # /Your/Path/To/sd-v1-4-full-ema.ckpt
-PROMPT_FILE=$2  # /Your/Path/To/Prompt_File.txt, e.g. ./infer_images/example_prompt.txt
-PROJECT_FOLDER=$3  # project folder name under ./logs/, e.g. training2023-06-20T14-58-59_celebbasis
+SD_PATH=$1  # v2-1_512-ema-pruned.ckpt权重文件的路径
+PROMPT_FILE=$2  # 提示文件的路劲, e.g. ./infer_images/example_prompt.txt
+PROJECT_FOLDER=$3  # 在./logs/下的项目文件夹名称, e.g. training2023-06-20T14-58-59_celebbasis
 INTERPOLATION_ARGS=$4
 LORA_FINETUNED=${5: False}
 N_SAMPLES=${6:-4}  # n_samples per text (equals to batch_size), default: 8

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from contextlib import contextmanager
 
 import sys
-sys.path.append("./src/taming-transformers")
+sys.path.append("./taming-transformers")
 from taming.modules.vqvae.quantize import VectorQuantizer2 as VectorQuantizer
 
 from ldm.modules.diffusionmodules.model import Encoder, Decoder

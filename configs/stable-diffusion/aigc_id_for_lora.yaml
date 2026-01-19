@@ -148,6 +148,7 @@ model:
 
 ################################################################
 
+# 重要数据设置
 data:
   target: main.DataModuleFromConfig
   params:
@@ -157,7 +158,7 @@ data:
     train:
       target: ldm.data.face_id.FFhq_dataset
       params:
-        root_dir: "./aug_images/lora_finetune_comparision_data/einstein/"  # /Your/Path/To/Images/ffhq.pickle
+        root_dir: "./aug_images/lora_finetune_comparision_data/1/"  # /Your/Path/To/Images/ffhq.pickle # 路径换到对齐后的图片路径
         # ffhq_latents_path: "../../datasets/ffhq/ffhq_latents.pt"
         split: train
         use_aug: False
@@ -171,7 +172,7 @@ data:
     validation:
       target: ldm.data.face_id.FFhq_dataset
       params:
-        root_dir: "./aug_images/lora_finetune_comparision_data/einstein/"  # /Your/Path/To/Images/ffhq.pickle"
+        root_dir: "./aug_images/lora_finetune_comparision_data/1/"  # /Your/Path/To/Images/ffhq.pickle"
         # ffhq_latents_path: "../../datasets/ffhq/ffhq_latents.pt"
         split: val
         image_size: 512
@@ -181,7 +182,7 @@ data:
 
 ##################################################################
 
-
+# 重要的训练环境
 lightning:
   modelcheckpoint:
     params:
@@ -194,6 +195,7 @@ lightning:
         max_images: 8
         increase_log_steps: False
 
+# 根据GPU，适量减少accumulate_grad_batches，但对于较低的值，适当增加max_steps
   trainer:
     benchmark: True
     max_steps: 50
