@@ -44,7 +44,7 @@ for (( i = 0 ; i < ${#eval_id1_list[@]} ; i++ )) do
 
   for step_id in "${step_list[@]}"; do
     echo embeddings_gs-"$step_id".pt
-    python scripts/stable_txt2img_testing_pmm2.py --ddim_eta 0.0 \
+    python scripts/stable_txt2img_testing_pmm2_2.py --ddim_eta 0.0 \
             --n_samples "${N_SAMPLES}" \
             --n_iter 1 \
             --scale 5.0 \
@@ -72,7 +72,7 @@ for (( i = 0 ; i < ${#eval_id1_list[@]} ; i++ )) do
 
 done
 #################### END #######################
-# 下面的提示词，不被用到代码中
+# 下面的提示词，不被用到代码中,是用在./infer_images/example_prompt_1.txt中的
 
 #prompt_list=(
 #"Elon Musk talks with Mr. Bean"
@@ -98,7 +98,7 @@ done
 #)
 
 prompt_list=(
-#"a photo of sks face"
+"a photo of sks face"
 #"sks is playing basketball"
 #"a man having sks face is playing guitar"
 #"a man having sks face is playing skateboard"
@@ -111,7 +111,7 @@ prompt_list=(
 #"a man having ks face shakes hands with another person having sks face"
 
 # **** ID Embedding ****
-"a photo of sks person"
+# "a photo of sks person"
 #"sks person is playing basketball"
 #"a sks person is playing guitar"
 #"a sks person is playing skateboard"

@@ -34,6 +34,7 @@ import pyrallis
 from dataclasses import dataclass, field
 from typing import List
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def chunk(it, size):
     it = iter(it)
@@ -42,30 +43,32 @@ def chunk(it, size):
 
 def load_model_from_config(config, ckpt, embedding_path, use_lora_finetuned, lora_scale, verbose=False):
     print(f"Loading model from {ckpt}")
-    _, extension = os.path.splitext(ckpt)
-    if extension.lower() == ".safetensors":
+    _, extension = os.path.splitext(ckpt)   # 获取文件扩展名。
+    if extension.lower() == ".safetensors": # 根据文件拓展名，用不同的形式加载模型权重
         pl_sd = safetensors.torch.load_file(ckpt, device="cpu")
     else:
         pl_sd = torch.load(ckpt, map_location="cpu")
-    if "global_step" in pl_sd:
+    if "global_step" in pl_sd:  # 打印训练步数
         print(f"Global Step: {pl_sd['global_step']}")
-    sd = pl_sd["state_dict"]
-    model = instantiate_from_config(config.model)
-    m, u = model.load_state_dict(sd, strict=False)
-    if len(m) > 0 and verbose:
+    sd = pl_sd["state_dict"]    # 提取模型参数
+    model = instantiate_from_config(config.model)# 根据config创建模型结构。
+    m, u = model.load_state_dict(sd, strict=False)  # 记载权重到模型
+    if len(m) > 0 and verbose:  # 打印缺失参数
         print("missing keys:")
         print(m)
-    if len(u) > 0 and verbose:
+    if len(u) > 0 and verbose:  # 打印多余参数
         print("unexpected keys:")
         print(u)
 
-    if(config.model.params.use_lora_finetuning == True and use_lora_finetuned):
+    if(config.model.params.use_lora_finetuning == True and use_lora_finetuned): # LoRA权重加载
         # _ , _ = inject_trainable_lora(model.model, loras=embedding_path.replace("embeddings_gs", "lora_params"))
         print("[Injecting lora weights] from : ", embedding_path.replace("embeddings_gs", "lora_params"))
+        # 把LoRA权重插入模型。
         monkeypatch_or_replace_lora(model.model, loras=torch.load(embedding_path.replace("embeddings_gs", "lora_params")),r=config.model.params.lora_rank)
-        tune_lora_scale(model.model, lora_scale)
+        tune_lora_scale(model.model, lora_scale)    # LoRA缩放，调整强度
 
-    model.cuda()
+    # model.cuda()
+    model.to(device)
     model.eval()
     return model
 
@@ -73,7 +76,7 @@ def load_model_from_config(config, ckpt, embedding_path, use_lora_finetuned, lor
 def main():
     parser = argparse.ArgumentParser()
 
-    # Change this
+    # 把命令行输入的字符串转换成整数列表，用于 argparse 解析参数。
     def list_of_ints(arg):
         return list(map(int, arg.split(' ')))
     
@@ -293,14 +296,14 @@ def main():
         type=str,
         default="",
         help="The suffix of saved images.")
-    # get interpolate ids argument with type as list of int
+    # 获取类型为int列表的interpolate id参数
     parser.add_argument("--interpolate_ids", type=list_of_ints, default=[0],
                         help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
 
     opt = parser.parse_args()
     print("Interpolate ids:", opt.interpolate_ids)
 
-    if opt.laion400m:
+    if opt.laion400m:   # 如果命令行中有--laion400m参数，程序切换到相应场景
         print("Falling back to LAION 400M model...")
         opt.config = "configs/latent-diffusion/txt2img-1p4B-eval.yaml"
         opt.ckpt = "models/ldm/text2img-large/model.ckpt"
@@ -308,27 +311,28 @@ def main():
 
     seed_everything(opt.seed)
 
-    config = OmegaConf.load(f"{opt.config}")
+    config = OmegaConf.load(f"{opt.config}")    # 读取yaml文件，传入下行代码
     model = load_model_from_config(config, f"{opt.ckpt}", opt.embedding_path, opt.lora_finetuned, opt.lora_scale)
-    model.embedding_manager.load(opt.embedding_path)
+    model.embedding_manager.load(opt.embedding_path)    # 加载 embedding manager 权重
 
-    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    # device = torch.device("cuda:1") if torch.cuda.is_available() else torch.device("cpu")
     model = model.to(device)
 
 
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
 
-    batch_size = opt.n_samples
-    n_rows = opt.n_rows if opt.n_rows > 0 else batch_size
+# 构建 Stable Diffusion 推理时使用的 prompt 列表（正向 prompt 与负向 prompt），并按照 batch_size 组织成批量输入。
+    batch_size = opt.n_samples  # 设置batch_size大小
+    n_rows = opt.n_rows if opt.n_rows > 0 else batch_size   # 设置输出图片网格的行数
     prompt_all = []
-    if not opt.from_file:
+    if not opt.from_file:   # 判断 prompt 输入方式，若如果不是文件输入
         prompt = opt.prompt
-        assert prompt is not None
+        assert prompt is not None   # 检查 prompt 是否存在
         data = [batch_size * [prompt]]
         prompt_all.append(prompt)
         temp_neg = ""
-    else:
+    else:   # 如果是从文件输入
         print(f"reading prompts from {opt.from_file}")
         # temp_pos, temp_neg = get_pos_neg_temps(opt.from_file)  # optional: use long prompt
         temp_pos, temp_neg = "{}", "3D, deformed, diptych, triptych, blurry, bad atonomy, disfigured, distorted, deformed, bad art, boring, low quality, poorly rendered, blurry, out of focus\
@@ -339,17 +343,17 @@ def main():
         #     out of frame, black and white, low resolution, distored face, cartoon, duplicate, repeated,  multiple faces, bad eyes, bad face, cropped head, \
         #         plain background, low details, distorted detail, unattractive, ugly, jpeg artifacts, \
         #         split frame, multiple panel, split image, frame, magazine, tiled, diptych, triptych"
-        # temp_pos, temp_neg = "{}", "synthetic, cartoonish"
+        # temp_pos, temp_neg = "{}", "synthetic, cartoonish"    # 这里有两种负面提示。
         with open(opt.from_file, "r") as f:
-            data = f.read().splitlines()
+            data = f.read().splitlines()    # 读取每一行
             prompt_all = data
 
-            data = [batch_size * [temp_pos.format(p)] for p in data]
+            data = [batch_size * [temp_pos.format(p)] for p in data]    # 构建batch_prompt以逐个prompt执行
 
-    sample_path = os.path.join(outpath, "samples")
+    sample_path = os.path.join(outpath, "samples")  # 设置samples的保存路径
     os.makedirs(sample_path, exist_ok=True)
-    base_count = len(os.listdir(sample_path))
-    grid_count = len(os.listdir(outpath)) - 1
+    base_count = len(os.listdir(sample_path))   # 统计samples目录中的图片个数
+    grid_count = len(os.listdir(outpath)) - 1   # 统计grid图片个数
 
     def get_stable_diffusion_config(args):
         return {
@@ -361,7 +365,7 @@ def main():
 
     @dataclass
     class PMConfig:
-        # general config
+        # 通用配置
         seed: int = 10
         batch_size: int = opt.n_samples
         exp_dir: str = "results"
@@ -378,38 +382,39 @@ def main():
 
         # prompt-mixing
         prompt: str = "a {word} in the field eats an apple"
-        object_of_interest: str = ""                                   # The object for which we generate variations
-        proxy_words: List[str] = field(default_factory=lambda :[])          # Leave empty for automatic proxy words
-        number_of_variations: int = 20
-        start_prompt_range: int = 0                                         # Number of steps to begin prompt-mixing
-        end_prompt_range: int = 50                                          # Number of steps to finish prompt-mixing
+        object_of_interest: str = ""                                   # 这个是我们需要编辑的对象
+        proxy_words: List[str] = field(default_factory=lambda :[])          # 替换词列表
+        number_of_variations: int = 20  # 生成多少张变体
+        start_prompt_range: int = 0                                         # 从第几步开始进行 prompt mixing。
+        end_prompt_range: int = 50                                          # 从第几步结束进行 prompt mixing。
 
-        # attention based shape localization
+        # 基于注意力的形体控制
         objects_to_preserve: List[str] = field(default_factory=lambda :["person"])  # Objects for which apply attention based shape localization
-        remove_obj_from_self_mask: bool = True                              # If set to True, removes the object of interest from the self-attention mask
-        obj_pixels_injection_threshold: float = 0.05
-        end_preserved_obj_self_attn_masking: int = 30
+        remove_obj_from_self_mask: bool = True                              # 如果设置为True，则从自注意掩码中移除感兴趣的对象
+        obj_pixels_injection_threshold: float = 0.05    # attention mask的阈值
+        end_preserved_obj_self_attn_masking: int = 30   # mask闲置的结束时间
 
-        # real image
+        # 真实图片
         real_image_path: str = ""
 
-        # controllable background preservation
+        # 可控背景保存
         background_post_process: bool = True
-        background_nouns: List[str] = field(default_factory=lambda :["person"])     # Objects to take from the original image in addition to the background
-        num_segments: int = 5                                               # Number of clusters for the segmentation
-        background_segment_threshold: float = 0.4                           # Threshold for the segments labeling
-        background_blend_timestep: int = 35                                 # Number of steps before background blending
+        background_nouns: List[str] = field(default_factory=lambda :["person"])     # 从原始图像中提取的除背景外的物体
+        num_segments: int = 5                                               # 用于分割的数量
+        background_segment_threshold: float = 0.4                           # 背景分割的阈值
+        background_blend_timestep: int = 35                                 # 背景融合时间
 
-        # other
+        # attention 注入参数
         cross_attn_inject_steps: float = 10.0
         self_attn_inject_steps: float = 30.0
 
     start_code = None
-    if opt.fixed_code:
+    if opt.fixed_code:  # 是否是固定噪声
         start_code = torch.randn([opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device=device)
 
-    if config.model.params.personalization_config.params.test_mode == "image":
-        img_idx = opt.eval_img_idx
+    if config.model.params.personalization_config.params.test_mode == "image":  # 是否进入 image edit模式
+        img_idx = opt.eval_img_idx  # 读取图像索引
+        # 读取不同的测试数据集
         if opt.eval_dataset in ('vgg0', 'vgg1'):
             shift_id = 5
             test_id2 = (opt.eval_id1 + shift_id) % 10
@@ -431,7 +436,7 @@ def main():
                 opt.eval_id1)).convert("RGB")
             id2 = Image.open("/gavin/datasets/aigc_id/dataset_e4t/test/{0:05d}_id{0}_#0.jpg".format(
                 test_id2)).convert("RGB")
-        elif opt.eval_dataset in ('ffhq', ):
+        elif opt.eval_dataset in ('ffhq', ):    # 如果使用FFHQ数据集，就只有一个identity
 
             # opt.eval_id1 = np.random.randint(len(os.listdir("/home/test/rishubh/sachi/CelebBasisV2/aug_images/stylegan3/edited/"))-1)
             # test_id2 = (opt.eval_id1 + 1) % 10
@@ -449,8 +454,8 @@ def main():
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
-        def pil_to_4d(img: Image):
-            tensor = trans(img).permute(1, 2, 0)
+        def pil_to_4d(img: Image):  # PIL→4D tensor
+            tensor = trans(img).permute(1, 2, 0)    # 变换维度
             tensor = tensor.unsqueeze(0).repeat(batch_size, 1, 1, 1)  # (N,H,W,C)
             return tensor.to(device)
         
@@ -503,9 +508,9 @@ def main():
 
         print("outpath", outpath)
         print("output pathe exists", os.path.exists(outpath))
-        if(not os.path.exists(outpath)):
-            print("creating outpath")
-            os.makedirs(os.path.join(outpath, 'gif'), exist_ok=True)
+        # if(not os.path.exists(outpath)):
+        #     print("creating outpath")
+        #     os.makedirs(os.path.join(outpath, 'gif'), exist_ok=True)
 
         # grid_count = len(os.listdir(outpath)) - 1
         # outpath = os.path.join(outpath, f"sample_{grid_count}")
@@ -520,20 +525,20 @@ def main():
         
     for i, files in enumerate(files_list):
         files = opt.file_name
-        id1 = Image.open("./aug_images/{}/edited/{}".format(folder_name,files)).convert("RGB")
-        faces = pil_to_4d(id1)
+        id1 = Image.open("./aug_images/{}/edited/{}".format(folder_name,files)).convert("RGB")  # 将图片改成RGB格式
+        faces = pil_to_4d(id1)  # 再转化为4Dtensor  
 
-        if(two_ids):
+        if(two_ids):    # 因为没有第二个身份的传入，所以跳过
             id2 = Image.open("./aug_images/{}/edited/{}".format("comparision", "7.png")).convert("RGB")
             face2 = pil_to_4d(id2)
 
-        grid_count = len(os.listdir(outpath)) - 1
+        grid_count = len(os.listdir(outpath)) - 1   # 查看要输出的目录中已经存在了几个文件
         outpath_new = os.path.join(outpath, f"sample_{grid_count}")
         os.makedirs(os.path.join(outpath_new,"gif"), exist_ok=True)
         grid_count = len(os.listdir(outpath_new)) 
 
 
-        if(not loop_through_weights):
+        if(not loop_through_weights):   # 只有loop_through_weights == False的时候执行
             image_ori = {
                 "faces": faces,
                 "ids": (torch.tensor([i], device=device)).unsqueeze(0).repeat(batch_size, 1),
@@ -548,23 +553,24 @@ def main():
         #     }
 
         precision_scope = nullcontext
-        with torch.no_grad():
-            with precision_scope("cuda"):
-                with model.ema_scope():
+        with torch.no_grad():   # 关闭梯度
+            with precision_scope("cuda"):   # 控制精度
+                with model.ema_scope(): # 使用EMA权重
                     tic = time.time()
-                    for n in trange(opt.n_iter, desc="Sampling"):
+                    for n in trange(opt.n_iter, desc="Sampling"):   # 采样循环
                         all_samples = list()
                         prompts_idx = 0
-                        for prompts in tqdm(data, desc="data"):
-                            if(opt.interpolate_ids[2] != -1):
-                                uc = None
-                                if opt.scale != 1.0:
+                        for prompts in tqdm(data, desc="data"): # prompt循环
+                            if(opt.interpolate_ids[2] != -1):   # 是否进行人脸identity混合
+                                uc = None   # 无条件扩散
+                                if opt.scale != 1.0:        
                                     neg_prompt = temp_neg
-                                    uc = model.get_learned_conditioning(batch_size * [neg_prompt],interpolate_ids=opt.interpolate_ids)
+                                    uc = model.get_learned_conditioning(batch_size * [neg_prompt],interpolate_ids=opt.interpolate_ids)  # 把 negative prompt 转换成 text embedding。
                         
                                 if(loop_through_weights):
                                     video_list = []
 
+                                    # 准备 diffusion 输入
                                     image_ori = {
                                                 "faces": faces if not two_ids else torch.cat([faces, face2], dim=-1),
                                                 "ids": (torch.tensor([i], device=device)).unsqueeze(0).repeat(batch_size, 1) if not two_ids else torch.tensor([i, 7], device=device).unsqueeze(0).repeat(batch_size, 1),
@@ -573,25 +579,26 @@ def main():
                                             }
                                         
                                     seed_everything(opt.seed)
-                                    prompt_mixing_prompt = [prompt.replace("sks person","brad pitt") for prompt in prompts]
-                                    prompt_mixing_prompt = [prompt_mix.replace("ks person","ryan gosling") for prompt_mix in prompt_mixing_prompt]
+                                    prompt_mixing_prompt = [prompt.replace("sks person","brad pitt") for prompt in prompts] # 替换 prompt 中的 占位符 token。
+                                    prompt_mixing_prompt = [prompt_mix.replace("ks person","ryan gosling") for prompt_mix in prompt_mixing_prompt]  # 同样替换
                                     print("prompt_mixing_prompt", prompt_mixing_prompt)
-                                    image_for_ddim = {'face_img': image_ori["faces"], 'image_ori': image_ori, 'aligned_faces': None,
+                                    image_for_ddim = {'face_img': image_ori["faces"], 'image_ori': image_ori, 'aligned_faces': None,    # 构造DDIM输入字典
                                                         'caption': prompts, 'prompt_mixing_prompt': prompt_mixing_prompt,
                                                         'steps_for_prompt_mixing': steps_for_prompt_mixing, "two_ids": two_ids, "sample_id": sample_id}
                                     
-                                    if isinstance(prompts, tuple):
+                                    if isinstance(prompts, tuple):  # 确保prompt是list类型
                                         prompts = list(prompts)
 
+                                    # 扩散模型生成图像（DDIM采样）前的最后准备步骤
                                     uncond_prompt = [""]*batch_size
                                     # c = model.get_learned_conditioning(prompts, image_ori=image_ori,aligned_faces=None,interpolate_ids=opt.interpolate_ids)
-                                    c = model.get_learned_conditioning(uncond_prompt)
+                                    c = model.get_learned_conditioning(uncond_prompt)   # 把文本 prompt 转换成 CLIP embedding。
                                     # c= model.cond_stage_model.encode(uncond_prompt, embedding_manager=model.embedding_manager,
                                     #                                 face_img=image_ori['faces'], image_ori=image_ori,
                                     #                                 aligned_faces=None,
                                     #                                 only_embedding=True)
                                     
-                                    shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
+                                    shape = [opt.C, opt.H // opt.f, opt.W // opt.f] # 定义 latent 空间尺寸
                                     image, x_T, all_latents, orig_mask, average_attention, controller = generate_original_image(model, 
                                                                                                     model_config = get_stable_diffusion_config(args),
                                                                                                     args=args,
@@ -604,9 +611,9 @@ def main():
                                                                                                     unconditional_conditioning=uc,
                                                                                                     eta=opt.ddim_eta,
                                                                                                     x_T=start_code,
-                                                                                                    image_for_ddim=image_for_ddim,
+                                                                                                    image_for_ddim=image_for_ddim,  # 这里有人脸输入，但是主要是身份的输入。
                                                                                                     use_prompt_mixing=use_prompt_mixing,)
-                                    
+                                    # 这里输出的image，应该是对应生成的类原图，这里面应该能改，类似于图像重建。但是不用于后面的编辑操作，相当于保存重建结果。
                                     # print("keys: ", controller.attention_store["input_cross"][0].shape,
                                     #       controller.attention_store["middle_cross"][0].shape,
                                     #         controller.attention_store["output_cross"][0].shape,
@@ -616,12 +623,12 @@ def main():
                                     weight_lambda1_prev = 0
                                     weight_lambda2_prev = 0
                                     for strength, weight_lambda in enumerate(attr_range):
-                                        weight_lambda1 = attr1_range[strength] if strength < len(attr1_range) else weight_lambda1_prev
+                                        weight_lambda1 = attr1_range[strength] if strength < len(attr1_range) else weight_lambda1_prev  # 计算属性强度
                                         weight_lambda2 = attr2_range[strength] if strength < len(attr2_range) else weight_lambda2_prev
                                         weight_lambda1_prev = weight_lambda1
                                         weight_lambda2_prev = weight_lambda2
 
-                                        if(two_ids):
+                                        if(two_ids):    # 有两个identity 的情况
                                             print("weight_lambda ,", weight_lambda, "weight_lambda1 ,", weight_lambda1, "weight_lambda2 ,", weight_lambda2)
                                             if(attr is not None):
                                                 delta_w1 = torch.tensor(delta_w_dict[attr], device=device).repeat(batch_size, 1, 1) * weight_lambda1
@@ -635,7 +642,7 @@ def main():
                                             if(attr is None and attr2 is None):
                                                 delta_w = None
                                         else:
-                                            if(two_attr):
+                                            if(two_attr):   # 有两个属性的情况
                                                 delta_w1 = torch.tensor(delta_w_dict[attr], device=device).repeat(batch_size, 1, 1) * weight_lambda1
                                                 delta_w2 = torch.tensor(delta_w_dict[attr2], device=device).repeat(batch_size, 1, 1) * weight_lambda2
                                                 delta_w = delta_w1 + delta_w2
@@ -643,7 +650,7 @@ def main():
                                             else:
                                                 delta_w = torch.tensor(delta_w_dict[attr], device=device).repeat(batch_size, 1, 1) * weight_lambda1 if attr is not None else None
 
-                                        context_image_ori = {
+                                        context_image_ori = {   # 创建一个字典，用于保存 编辑阶段需要的 identity 信息和 latent 编辑向量。
                                                     "faces": faces if not two_ids else torch.cat([faces, face2], dim=-1),
                                                     "ids": (torch.tensor([i], device=device)).unsqueeze(0).repeat(batch_size, 1) if not two_ids else torch.tensor([i, 7], device=device).unsqueeze(0).repeat(batch_size, 1),
                                                     "num_ids": (torch.ones(batch_size, dtype=torch.long).to(device)) if not two_ids else torch.ones(batch_size, dtype=torch.long).to(device) * 2,
@@ -671,47 +678,49 @@ def main():
                                         
                                         shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                                         
-                                        # save samples
+                                        # 保存样品
                                         torchvision.utils.save_image(transforms.ToTensor()(image[0]), os.path.join(outpath_new,"./pmm_sample_img.jpg"))
                                         torchvision.utils.save_image(torch.from_numpy(orig_mask).float(), os.path.join(outpath_new,"./pmm_sample_mask.jpg"))
 
-                                        if(attr is not None):
-                                            object_of_interest_index = [prompts[0].split(" ").index("sks")+1, prompts[0].split(" ").index("sks") + 2]
-                                        if(two_ids and attr2 is not None):
+                                        if(attr is not None):   # 如果属性需要编辑
+                                            object_of_interest_index = [prompts[0].split(" ").index("sks")+1, prompts[0].split(" ").index("sks") + 2]   # 找到 prompt 中需要编辑的对象 token 位置。
+                                        if(two_ids and attr2 is not None):  # 如果有两个identity
                                             object_of_interest_index.extend([prompts[0].split(" ").index("ks")+1, prompts[0].split(" ").index("ks") + 2])
 
-                                        prompts_for_tokenization = prompts[0].replace("sks", "sks ry")
+                                        prompts_for_tokenization = prompts[0].replace("sks", "sks ry")  # 构造新的 prompt，在 sks 后面插入一个 token
                                         if(two_ids):
                                             prompts_for_tokenization = prompts_for_tokenization.replace(" ks", " ks rn")
-                                        tokenized_prompt = nltk.word_tokenize(prompts_for_tokenization)
+                                        tokenized_prompt = nltk.word_tokenize(prompts_for_tokenization) # 对 prompt 做 正式分词。
                         
                                         # print("tokenized prompt :", tokenized_prompt)
-                                        nouns = [(l, word) for (l, (word, pos)) in enumerate(nltk.pos_tag(tokenized_prompt)) if pos[:2] == 'NN']
-                                        object_to_preserve_index = [l+1 for (l, word) in nouns if word not in ("sks", "ry", "ks", "rn")]
+                                        nouns = [(l, word) for (l, (word, pos)) in enumerate(nltk.pos_tag(tokenized_prompt)) if pos[:2] == 'NN']    # 做词性标注
+                                        object_to_preserve_index = [l+1 for (l, word) in nouns if word not in ("sks", "ry", "ks", "rn")]    # 找到需要保持的对象 token。
                                         # object_to_preserve_index = [prompts[0].replace("sks", "sks ks").split(" ").index("person")+1]
                                         # print("object_of_interest_index", object_of_interest_index, object_to_preserve_index)
                                         # print("average_attention", average_attention.keys(), len(average_attention['input_self']))
+                                        # 创建 PromptMixing 控制器，用于 diffusion 过程中的 attention editing。
                                         pm = PromptMixing(args, object_of_interest_index, objects_to_preserve=object_to_preserve_index, 
                                                           avg_cross_attn=average_attention,orig_mask=orig_mask)
                                         
                                         seed_everything(opt.seed)
-                                        do_other_obj_self_attn_masking = len(args.objects_to_preserve) > 0 and args.end_preserved_obj_self_attn_masking > 0
-                                        do_self_or_cross_attn_inject = args.cross_attn_inject_steps != 0.0 or args.self_attn_inject_steps != 0.0
+                                        do_other_obj_self_attn_masking = len(args.objects_to_preserve) > 0 and args.end_preserved_obj_self_attn_masking > 0 # 判断是否需要self-attention mask
+                                        do_self_or_cross_attn_inject = args.cross_attn_inject_steps != 0.0 or args.self_attn_inject_steps != 0.0    # 判断是否需要 attention injection
                                         # if do_other_obj_self_attn_masking:
                                         #     print("Do self attn other obj masking")
                                         # if do_self_or_cross_attn_inject:
                                         #     print(f'Do self attn inject for {args.self_attn_inject_steps} steps')
                                         #     print(f'Do cross attn inject for {args.cross_attn_inject_steps} steps')
 
-                                        if(do_self_or_cross_attn_inject):
+                                        if(do_self_or_cross_attn_inject):   # 如果需要attention editing
+                                        # 创建一个 attention controller，用于在 diffusion 过程中替换 attention map。
                                             controller = AttentionReplace(image_for_ddim, model, model.device, args.low_resource, 50,
                                                                           cross_replace_steps=args.cross_attn_inject_steps,
                                                                             self_replace_steps=args.self_attn_inject_steps)
                                         else:
                                             controller = AttentionStore(args.low_resource)
 
-                                        sampler_wrapper = DDIMSamplerWrapper(model, controller=controller, prompt_mixing=pm, model_config=get_stable_diffusion_config(args))
-                                        with torch.no_grad():
+                                        sampler_wrapper = DDIMSamplerWrapper(model, controller=controller, prompt_mixing=pm, model_config=get_stable_diffusion_config(args))    # 定义采样器
+                                        with torch.no_grad():   # 采样函数
                                             samples_ddim, x_t, _, mask = sampler_wrapper.sample(args=args, 
                                                                                          S=opt.ddim_steps,
                                                                                          conditioning=c,
@@ -722,11 +731,11 @@ def main():
                                                                                          unconditional_conditioning=uc,
                                                                                          eta=opt.ddim_eta,
                                                                                          x_T=start_code,
-                                                                                         image_for_ddim=image_for_ddim,
-                                                                                         orig_image_for_ddim=context_image_for_ddim,
+                                                                                         image_for_ddim=image_for_ddim, # 当前图像信息
+                                                                                         orig_image_for_ddim=context_image_for_ddim,    # 原始图像信息
                                                                                          use_prompt_mixing=use_prompt_mixing,
                                                                                          post_background=args.background_post_process,
-                                                                                         orig_all_latents=all_latents,
+                                                                                         orig_all_latents=all_latents,  # 第二轮编辑的是这个
                                                                                          orig_mask=orig_mask,)
                                             
 
@@ -736,19 +745,19 @@ def main():
 
                                         # x_samples_ddim = model.decode_first_stage(samples_ddim)
                                         # x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
-                                        x_samples_ddim = torch.from_numpy(samples_ddim/255).permute(0, 3, 1, 2).to("cuda:0")
+                                        x_samples_ddim = torch.from_numpy(samples_ddim/255).permute(0, 3, 1, 2).to(device)  # 将 numpy 图像转成 PyTorch tensor
 
-                                        if not opt.skip_save:
+                                        if not opt.skip_save:   # 判断是否需要保存单张图片
                                             for x_sample in x_samples_ddim:
                                                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
-                                                Image.fromarray(x_sample.astype(np.uint8)).save(
+                                                Image.fromarray(x_sample.astype(np.uint8)).save(    # 保存图像
                                                     os.path.join(sample_path, f"{base_count:05}.jpg"))
                                                 base_count += 1
 
                                         if not opt.skip_grid:
                                             all_samples.append(x_samples_ddim)
 
-                                        if not opt.skip_grid:
+                                        if not opt.skip_grid:   # 是否需要拼图
                                             # additionally, save as grid
                                             n_rows = 5
                                             # new_all_samples = []
@@ -764,15 +773,15 @@ def main():
                                             
                                             # with open(config.data.params.validation.params.pickle_path, "rb") as f:
                                             # data = pickle.load(f)
-                                            input_img = np.array(id1)
-                                            input_img = cv2.resize(input_img, (grid.shape[-1], grid.shape[-1]))
-                                            input_img = torch.from_numpy(input_img).to("cuda:0")/255
-                                            input_img = input_img.permute(2, 0, 1).unsqueeze(0).unsqueeze(0)
-                                            grid = torch.cat([input_img, grid], axis=1)
+                                            input_img = np.array(id1)   # 获取输入图像
+                                            input_img = cv2.resize(input_img, (grid.shape[-1], grid.shape[-1])) # 调整输入图像大小
+                                            input_img = torch.from_numpy(input_img).to(device)/255
+                                            input_img = input_img.permute(2, 0, 1).unsqueeze(0).unsqueeze(0)    # 扩展维度
+                                            grid = torch.cat([input_img, grid], axis=1) # 把输入图像加入grid
                         
-                                            for idx, one_grid in enumerate(grid):
+                                            for idx, one_grid in enumerate(grid):   # 遍历grid中的每一个元素
                                                 if(idx==0):
-                                                    one_grid = make_grid(one_grid, nrow=n_rows)
+                                                    one_grid = make_grid(one_grid, nrow=n_rows) # 生成拼图
                                                     # to image
                                                     one_grid = 255. * rearrange(one_grid, 'c h w -> h w c').cpu().numpy()
                                                     # Image.fromarray(one_grid.astype(np.uint8)).save(
@@ -786,9 +795,9 @@ def main():
                                                     grid_count += 1
 
                                             all_samples = list()
-                                            del grid, x_samples_ddim, samples_ddim, context_image_for_ddim, context_image_ori, controller, sampler_wrapper
+                                            del grid, x_samples_ddim, samples_ddim, context_image_for_ddim, context_image_ori, controller, sampler_wrapper  # 删除变量释放显存
 
-                                    # save the video list as gif
+                                    # 将video_list保存为GIF格式
                                     import imageio
                                     # imageio.mimsave(os.path.join(outpath_new, 'gif', f'{grid_count:04}-{prompt_all[prompts_idx].replace(" ", "-")}_'
                                     #                                         f'{opt.img_suffix[:40]}.gif'), video_list, duration=0.5)
@@ -800,10 +809,10 @@ def main():
                                 prompts_idx += 1
                             
                             else:
-                                for i in range(opt.interpolate_ids[3]+1):
-                                    opt.interpolate_ids[2] = i
+                                for i in range(opt.interpolate_ids[3]+1):   # 作用：循环插值参数
+                                    opt.interpolate_ids[2] = i  # 作用：更新当前插值步
                                     uc = None
-                                    if opt.scale != 1.0:
+                                    if opt.scale != 1.0:    # 判断是否使用 guidance
                                         neg_prompt = temp_neg
                                         uc = model.get_learned_conditioning(batch_size * [neg_prompt],interpolate_ids=opt.interpolate_ids)
                                     if isinstance(prompts, tuple):
@@ -811,7 +820,7 @@ def main():
                                     seed_everything(opt.seed)
                                     c = model.get_learned_conditioning(prompts, image_ori=image_ori,interpolate_ids=opt.interpolate_ids)
                                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
-                                    samples_ddim, _ = sampler.sample(S=opt.ddim_steps,
+                                    samples_ddim, _ = sampler.sample(S=opt.ddim_steps,  # 扩散模型生成的核心步骤。
                                                                     conditioning=c,
                                                                     batch_size=opt.n_samples,
                                                                     shape=shape,
@@ -821,8 +830,8 @@ def main():
                                                                     eta=opt.ddim_eta,
                                                                     x_T=start_code)
 
-                                    x_samples_ddim = model.decode_first_stage(samples_ddim)
-                                    x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
+                                    x_samples_ddim = model.decode_first_stage(samples_ddim) # 把 latent 转回像素空间。
+                                    x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)    # 归一化图像范围
 
                                     if not opt.skip_save:
                                         for x_sample in x_samples_ddim:
@@ -834,8 +843,8 @@ def main():
                                     if not opt.skip_grid:
                                         all_samples.append(x_samples_ddim)
 
-                                if not opt.skip_grid:
-                                    # additionally, save as grid
+                                if not opt.skip_grid:   # 是否需要拼图
+                                    # 另外保存为grid
                                     grid = torch.stack(all_samples, 0)  # (n,b,c,h,w)
                                     grid = rearrange(grid, 'n b c h w -> (n b) c h w')
                                     with open(config.data.params.validation.params.pickle_path, "rb") as f:
@@ -843,7 +852,7 @@ def main():
                                             if(len(data)==1):
                                                 input_img = cv2.imread(data[0])
                                                 input_img = cv2.resize(input_img, (grid.shape[-1], grid.shape[-1]))
-                                                input_img = torch.from_numpy(input_img).to("cuda:0")/255
+                                                input_img = torch.from_numpy(input_img).to(device)/255
                                                 input_img = input_img.permute(2, 0, 1).unsqueeze(0).unsqueeze(0)
                                                 one_grid = torch.cat([input_img, grid], axis=1)
 

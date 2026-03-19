@@ -18,11 +18,11 @@ from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyControll
 
 
 
-def generate_original_image(model, model_config, args, **kwargs):
-    controller = AttentionStore(args.low_resource)
+def generate_original_image(model, model_config, args, **kwargs):   # 这一步是生成原始图像。args是实验参数，这个kwargs-把所有额外的“关键字参数”打包成一个字典
+    co  ntroller = AttentionStore(args.low_resource)
     ddim_sampler = DDIMSamplerWrapper(model=model, controller=controller, model_config=model_config)
     image, x_t, orig_all_latents, _ = ddim_sampler.sample(args, **kwargs)
-    orig_mask = Segmentor(controller, kwargs["image_for_ddim"]['caption'], args.num_segments, args.background_segment_threshold, 
+    orig_mask = Segmentor(controller, kwargs["image_for_ddim"]['caption'], args.num_segments, args.background_segment_threshold,    # 生成背景mask
                           background_nouns=args.background_nouns).get_background_mask(kwargs["image_for_ddim"]["caption"][-1].split(" ").index("sks")+1)
     average_attention = controller.get_average_attention()
     return image, x_t, orig_all_latents, orig_mask, average_attention, controller
@@ -41,7 +41,7 @@ class DDIMSamplerWrapper(object):
         self.model_config = model_config
         self.register_attention_control()
 
-    def register_buffer(self, name, attr):
+    def register_buffer(self, name, attr):  # 并确保 Tensor 在 GPU 上。
         if type(attr) == torch.Tensor:
             if attr.device != torch.device("cuda"):
                 attr = attr.to(torch.device("cuda"))
@@ -49,23 +49,23 @@ class DDIMSamplerWrapper(object):
 
     def make_schedule(self, ddim_num_steps, ddim_discretize="uniform", ddim_eta=0., verbose=True):
         self.ddim_timesteps = make_ddim_timesteps(ddim_discr_method=ddim_discretize, num_ddim_timesteps=ddim_num_steps,
-                                                  num_ddpm_timesteps=self.ddpm_num_timesteps,verbose=verbose)
-        alphas_cumprod = self.model.alphas_cumprod
+                                                  num_ddpm_timesteps=self.ddpm_num_timesteps,verbose=verbose)   # 生成用于采样的时间步
+        alphas_cumprod = self.model.alphas_cumprod  # 获取alphas累乘
         assert alphas_cumprod.shape[0] == self.ddpm_num_timesteps, 'alphas have to be defined for each timestep'
-        to_torch = lambda x: x.clone().detach().to(torch.float32).to(self.model.device)
+        to_torch = lambda x: x.clone().detach().to(torch.float32).to(self.model.device) # tensor转换
 
         self.register_buffer('betas', to_torch(self.model.betas))
         self.register_buffer('alphas_cumprod', to_torch(alphas_cumprod))
         self.register_buffer('alphas_cumprod_prev', to_torch(self.model.alphas_cumprod_prev))
 
-        # calculations for diffusion q(x_t | x_{t-1}) and others
+        # 计算扩散 q(x_t | x_{t-1}) 或者其他计算。
         self.register_buffer('sqrt_alphas_cumprod', to_torch(np.sqrt(alphas_cumprod.cpu())))
         self.register_buffer('sqrt_one_minus_alphas_cumprod', to_torch(np.sqrt(1. - alphas_cumprod.cpu())))
         self.register_buffer('log_one_minus_alphas_cumprod', to_torch(np.log(1. - alphas_cumprod.cpu())))
         self.register_buffer('sqrt_recip_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu())))
         self.register_buffer('sqrt_recipm1_alphas_cumprod', to_torch(np.sqrt(1. / alphas_cumprod.cpu() - 1)))
 
-        # ddim sampling parameters
+        # ddim 采样参数
         ddim_sigmas, ddim_alphas, ddim_alphas_prev = make_ddim_sampling_parameters(alphacums=alphas_cumprod.cpu(),
                                                                                    ddim_timesteps=self.ddim_timesteps,
                                                                                    eta=ddim_eta,verbose=verbose)
@@ -75,7 +75,7 @@ class DDIMSamplerWrapper(object):
         self.register_buffer('ddim_sqrt_one_minus_alphas', np.sqrt(1. - ddim_alphas))
         sigmas_for_original_sampling_steps = ddim_eta * torch.sqrt(
             (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
-                        1 - self.alphas_cumprod / self.alphas_cumprod_prev))
+                        1 - self.alphas_cumprod / self.alphas_cumprod_prev))    # 计算原始采样
         self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
 
     @torch.no_grad()
@@ -107,9 +107,9 @@ class DDIMSamplerWrapper(object):
                # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
                **kwargs
                ):
-        if conditioning is not None:
-            if isinstance(conditioning, dict):
-                cbs = conditioning[list(conditioning.keys())[0]].shape[0]
+        if conditioning is not None:    # 如果条件不为空
+            if isinstance(conditioning, dict):  # 是否是字典
+                cbs = conditioning[list(conditioning.keys())[0]].shape[0]   # 获得batch-size
                 if cbs != batch_size:
                     print(f"Warning: Got {cbs} conditionings but batch-size is {batch_size}")
             else:
@@ -117,12 +117,12 @@ class DDIMSamplerWrapper(object):
                     print(f"Warning: Got {conditioning.shape[0]} conditionings but batch-size is {batch_size}")
 
         self.make_schedule(ddim_num_steps=S, ddim_eta=eta, verbose=verbose)
-        # sampling
+        # 采样
         C, H, W = shape
-        size = (batch_size, C, H, W)
+        size = (batch_size, C, H, W)    # 构建latents tensor尺寸
         print(f'Data shape for DDIM sampling is {size}, eta {eta}')
 
-        image, _ , all_latents, object_mask = self.ddim_sampling(args, conditioning, size,
+        image, _ , all_latents, object_mask = self.ddim_sampling(args, conditioning, size,  # 调用ddim采样
                                                     callback=callback,
                                                     img_callback=img_callback,
                                                     quantize_denoised=quantize_x0,
@@ -152,10 +152,10 @@ class DDIMSamplerWrapper(object):
                       post_background = False, orig_all_latents = None, orig_mask = None):
         device = self.model.betas.device
         b = shape[0]
-        if x_T is None:
+        if x_T is None: # 是否是初始噪声
             # img = torch.randn(shape, device=device)
-            img = torch.randn((4,shape[1],shape[2],shape[3]), device=device)
-            img = img[image_for_ddim["sample_id"]].unsqueeze(0)
+            img = torch.randn((4,shape[1],shape[2],shape[3]), device=device)    # 生成随机噪声
+            img = img[image_for_ddim["sample_id"]].unsqueeze(0)# 选择sample，应该是表示图像
             if(orig_image_for_ddim is not None):
                 img = torch.cat([img,img])
         else:
@@ -163,41 +163,41 @@ class DDIMSamplerWrapper(object):
 
         if timesteps is None:
             timesteps = self.ddpm_num_timesteps if ddim_use_original_steps else self.ddim_timesteps
-        elif timesteps is not None and not ddim_use_original_steps:
-            subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1
+        elif timesteps is not None and not ddim_use_original_steps: # 如果指定采样步
+            subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1   # 计算timesteps子集
             timesteps = self.ddim_timesteps[:subset_end]
 
-        intermediates = {'x_inter': [img], 'pred_x0': [img]}
-        time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
+        intermediates = {'x_inter': [img], 'pred_x0': [img]}    # 初始化中间变量
+        time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)    # 定义timesteps顺序，倒序
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
         print(f"Running DDIM Sampling with {total_steps} timesteps")
 
-        iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps, position=0)
+        iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps, position=0) # 创建进度条
 
-        self.enbale_attn_controller_changes = True
+        self.enbale_attn_controller_changes = True  # 使用attention_control
         object_mask = None
         self.diff_step = 0
         all_latents = []
         # cond_list_for_each_timestep = []
 
         uc = cond
-        prev_cross_attn_iou = np.zeros((1,1,32,32))
-        for i, step in enumerate(iterator):
+        prev_cross_attn_iou = np.zeros((1,1,32,32)) # 初始换attention_iou
+        for i, step in enumerate(iterator): # 进入扩散循环
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
 
-            if mask is not None:
+            if mask is not None:    # 如果存在mask
                 assert x0 is not None
-                img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
+                img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?，前向过程
                 img = img_orig * mask + (1. - mask) * img
 
-            self.input_cross_index = 0
+            self.input_cross_index = 0  # 重置cross-attention index
             self.middle_cross_index = 0
             self.output_cross_index = 0
             # getting condition from mapper
             # TODO: Don't hardcode c and checkwhether passing img to unet is correct (removed hardcoding, passing im is wrong, img is latent img)
             
-            if image_for_ddim is not None:
+            if image_for_ddim is not None:  # 如果有图像输入，获取图像信息
                 two_ids = image_for_ddim.get('two_ids', False)
                 face_img = image_for_ddim['face_img']
                 img_ori = image_for_ddim['image_ori']
@@ -207,14 +207,14 @@ class DDIMSamplerWrapper(object):
                     steps_for_prompt_mixing = image_for_ddim['steps_for_prompt_mixing']
             # h_space_feature = self.model.apply_model(img, ts, (uc,None), return_hspace=True)
             # h_space = {'h_space_feat': h_space_feature, 't':ts}
-            h_space = {'h_space_feat': None, 't':ts}
+            h_space = {'h_space_feat': None, 't':ts}    # 构建hidden—space
 
             other_cond = None
-            if(use_prompt_mixing and i < steps_for_prompt_mixing):
+            if(use_prompt_mixing and i < steps_for_prompt_mixing):  # 如果在使用嵌入混合的时间区间中
                 prompt_mixing_text = image_for_ddim['prompt_mixing_prompt']
                 # print("prompt mixing")
                 c = prompt_mixing_text
-                cond = self.model.get_learned_conditioning(c, face_img=face_img, image_ori=img_ori,aligned_faces=aligned_faces,h_space=h_space)
+                cond = self.model.get_learned_conditioning(c, face_img=face_img, image_ori=img_ori,aligned_faces=aligned_faces,h_space=h_space) # 将条件进行编码
                 # getting other context
                 # if(orig_image_for_ddim is not None):
                 #     other_cond = self.model.get_learned_conditioning(c, face_img, image_ori=orig_image_for_ddim['image_ori'],aligned_faces=aligned_faces,
@@ -225,12 +225,12 @@ class DDIMSamplerWrapper(object):
                 cond = self.model.get_learned_conditioning(c, face_img=face_img, image_ori=img_ori,aligned_faces=aligned_faces,h_space=h_space)
                 
             # getting other context
-            if(orig_image_for_ddim is not None):
+            if(orig_image_for_ddim is not None):    # 如果存在另外一组条件
                 other_cond = self.model.get_learned_conditioning(c, face_img, image_ori=orig_image_for_ddim['image_ori'],aligned_faces=aligned_faces,
                                                                     h_space=h_space)
-                other_cond = torch.cat([cond, other_cond])
+                other_cond = torch.cat([cond, other_cond])  # 拼接条件
 
-            outs = self.p_sample_ddim(args, img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            outs = self.p_sample_ddim(args, img, cond, ts, index=index, use_original_steps=ddim_use_original_steps, # 然后进入ddim step，跳转到p_sample_ddim函数
                                       quantize_denoised=quantize_denoised, temperature=temperature,
                                       noise_dropout=noise_dropout, score_corrector=score_corrector,
                                       corrector_kwargs=corrector_kwargs,
@@ -238,10 +238,10 @@ class DDIMSamplerWrapper(object):
                                       unconditional_conditioning=unconditional_conditioning, other_cond=other_cond, orig_image_for_ddim=orig_image_for_ddim)
             
             # cond_list_for_each_timestep.append(cond.detach().cpu().numpy())
-            img = outs[0]
-            img = self.controller.step_callback(img)
+            img = outs[0]   # 更新latents
+            img = self.controller.step_callback(img)    # attention controller 回调
 
-            # saving cross attn at each timestep
+            # 在每个时间步保存交叉注意力
             save_cross_attn = False
             if(two_ids and save_cross_attn):
                 save_dir = "./cross_attn_at_each_timestep"
@@ -275,7 +275,7 @@ class DDIMSamplerWrapper(object):
             # object_mask = None
             prompt = c
             
-            if post_background and (self.diff_step == args.background_blend_timestep):
+            if post_background and (self.diff_step == args.background_blend_timestep):  # 判断是否进行背景融合，默认不融合
                 object_mask = Segmentor(self.controller,
                                         prompt,
                                         args.num_segments,
@@ -308,7 +308,7 @@ class DDIMSamplerWrapper(object):
             #     intermediates['x_inter'].append(img)
             #     intermediates['pred_x0'].append(pred_x0)
             
-            del h_space, face_img, img_ori, aligned_faces, ts, c, cond, outs, pm_and_matching_args, pred_x0
+            del h_space, face_img, img_ori, aligned_faces, ts, c, cond, outs, pm_and_matching_args, pred_x0 # 删除临时变量
             if(two_ids):
                 del attn, token_attn, curr_noun_map, normalised_noun_map1, normalised_noun_map2, cross_attn_iou
 
@@ -317,12 +317,12 @@ class DDIMSamplerWrapper(object):
         # import json
         # with open("cond_list_for_each_timestep.json", "w") as f:
         #     json.dump(cond_json, f)
-        image = self.latent2image(all_latents[-1])
+        image = self.latent2image(all_latents[-1])  # 最终 latent → image
 
         return image, None, all_latents, object_mask
     
     @torch.no_grad()
-    def register_attention_control(self):
+    def register_attention_control(self):   # 给 UNet 的 Attention 层注册一个自定义 forward 函数。
         def ca_forward(model_self, place_in_unet):
             to_out = model_self.to_out
             if type(to_out) is torch.nn.modules.container.ModuleList:
@@ -415,47 +415,47 @@ class DDIMSamplerWrapper(object):
     def p_sample_ddim(self, args, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None, other_cond=None, orig_image_for_ddim=None):
-        b, *_, device = *x.shape, x.device
+        b, *_, device = *x.shape, x.device  # 获取 batch 和设备
 
-        if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
+        if unconditional_conditioning is None or unconditional_guidance_scale == 1.:    # 如果不使用CFG
             self.uncond_pred = True
             c = (c, None)
-            e_t = self.model.apply_model(x, t, c)
-        else:
-            n = 2 if orig_image_for_ddim is None else 4
-            self.uncond_pred = False
-            x_in = torch.cat([x] * 2)
+            e_t = self.model.apply_model(x, t, c)   # UNet预测噪声
+        else:   # 如果使用CFG
+            n = 2 if orig_image_for_ddim is None else 4 # 判断输入数量
+            self.uncond_pred = False    # 标记非unconditional
+            x_in = torch.cat([x] * 2)   # 复制latents
             t_in = torch.cat([t] * n)
             if(n==4):
-                c_in = torch.cat([unconditional_conditioning, unconditional_conditioning, c, c])
+                c_in = torch.cat([unconditional_conditioning, unconditional_conditioning, c, c])    # 拼接条件
             else:
                 c_in = torch.cat([unconditional_conditioning, c])
             # if(other_cond is not None):
             #     other_cond = torch.cat([unconditional_conditioning, other_cond])
             # print("c_in shape, t_in shape x_in shape:", c_in.shape, t_in.shape, x_in.shape)
-            c_in = (c_in, other_cond)
-            e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
-            e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)
+            c_in = (c_in, other_cond)   
+            e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2) # UNet预测噪声  
+            e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)    # CFG公式
 
-        if score_corrector is not None:
-            assert self.model.parameterization == "eps"
-            e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)
+        if score_corrector is not None: # 如果使用 score correction 方法。
+            assert self.model.parameterization == "eps" # 检查参数化
+            e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)    # 修改score
 
-        alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
-        alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
+        alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas  # 选择alphas
+        alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev   # 上一步 alpha
         sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
         sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
-        # select parameters corresponding to the currently considered timestep
+        # 选择与当前考虑的时间步长相对应的参数
         a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
         a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
         sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
         sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
 
-        # current prediction for x_0
+        # 当前对x_0的预测
         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
         if quantize_denoised:
             pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
-        # direction pointing to x_t
+        # 指向x_t的方向
         dir_xt = (1. - a_prev - sigma_t**2).sqrt() * e_t
         noise = sigma_t * noise_like(x.shape, device, repeat_noise) * temperature
         if noise_dropout > 0.:
