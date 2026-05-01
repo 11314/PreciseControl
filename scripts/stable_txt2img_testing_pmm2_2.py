@@ -480,7 +480,7 @@ def main():
         attr2_range = [1]
         save_folder = 'delta_w_test' # 保存路径部分
         use_prompt_mixing = True
-        steps_for_prompt_mixing = 10
+        steps_for_prompt_mixing = 15
         loop_through_weights = True # 只生成单张图就改成false
         do_one_identity = True
         opt.seed = 2
