@@ -3,6 +3,7 @@
 import argparse, os, sys, glob
 import torch
 import numpy as np
+import safetensors
 from omegaconf import OmegaConf
 from PIL import Image
 from tqdm import tqdm, trange
@@ -30,6 +31,7 @@ from src.lora.lora_diffusion.lora import inject_trainable_lora, monkeypatch_or_r
 
 from ldm.modules.prompt_mixing.prompt_mixing import PromptMixing
 from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionReplace, AttentionStore
+from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace
 
 import pyrallis
 from dataclasses import dataclass, field
@@ -772,8 +774,7 @@ def main():
                                                                                          orig_mask=orig_mask,
                                                                                          mask = part_mask,
                                                                                          x0 = x0,
-                                                                                         ) # 将生成的部件掩码用于此
-                                            
+                                                                                         ) # 将生成的部件掩码用于此                                       
 
 
 
