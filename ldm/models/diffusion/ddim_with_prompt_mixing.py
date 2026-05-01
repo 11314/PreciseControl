@@ -19,7 +19,7 @@ from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyControll
 
 
 def generate_original_image(model, model_config, args, **kwargs):   # 这一步是生成原始图像。args是实验参数，这个kwargs-把所有额外的“关键字参数”打包成一个字典
-    co  ntroller = AttentionStore(args.low_resource)
+    controller = AttentionStore(args.low_resource)
     ddim_sampler = DDIMSamplerWrapper(model=model, controller=controller, model_config=model_config)
     image, x_t, orig_all_latents, _ = ddim_sampler.sample(args, **kwargs)
     orig_mask = Segmentor(controller, kwargs["image_for_ddim"]['caption'], args.num_segments, args.background_segment_threshold,    # 生成背景mask
