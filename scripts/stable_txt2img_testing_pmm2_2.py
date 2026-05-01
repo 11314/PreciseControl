@@ -23,6 +23,7 @@ import nltk
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.ddim_with_prompt_mixing import DDIMSamplerWrapper, generate_original_image
+# from ldm.models.diffusion.ddim_construction import DDIMSampler, generate_original_image_ddim
 from ldm.models.diffusion.plms import PLMSSampler
 from evaluation.prompt_templates import get_pos_neg_temps
 from src.lora.lora_diffusion.lora import inject_trainable_lora, monkeypatch_or_replace_lora, tune_lora_scale
@@ -349,6 +350,7 @@ def main():
             prompt_all = data
 
             data = [batch_size * [temp_pos.format(p)] for p in data]    # 构建batch_prompt以逐个prompt执行
+            print(f"{data}")    # 看一下data的内容好构建终端prompt
 
     sample_path = os.path.join(outpath, "samples")  # 设置samples的保存路径
     os.makedirs(sample_path, exist_ok=True)
@@ -480,7 +482,7 @@ def main():
         attr2_range = [1]
         save_folder = 'delta_w_test' # 保存路径部分
         use_prompt_mixing = True
-        steps_for_prompt_mixing = 10
+        steps_for_prompt_mixing = 15
         loop_through_weights = True # 只生成单张图就改成false
         do_one_identity = True
         opt.seed = 2
@@ -532,8 +534,18 @@ def main():
             id2 = Image.open("./aug_images/{}/edited/{}".format("comparision", "7.png")).convert("RGB")
             face2 = pil_to_4d(id2)
 
-        grid_count = len(os.listdir(outpath)) - 1   # 查看要输出的目录中已经存在了几个文件
-        outpath_new = os.path.join(outpath, f"sample_{grid_count}")
+        # 判定最新的文件夹是否为空，如果为空，就复用。不为空就新建
+        grid_count = len(os.listdir(outpath)) - 2   # 查看要输出的目录中已经存在了几个文件，定位到最新的编号3
+        max_dir_path = os.path.join(outpath, f"sample_{grid_count}")
+        has_jpg = any(f.lower().endswith(".jpg") for f in os.listdir(max_dir_path)) # 查看3中是否有jpg
+        if has_jpg: # 如果有就新建
+            print(f"create new output_path")
+            grid_count += 1
+        else:   # 没有就复用
+            print(f"output_path is exist")
+            grid_count = grid_count
+
+        outpath_new = os.path.join(outpath, f"sample_{grid_count}") # 判定最新的3是否存在  
         os.makedirs(os.path.join(outpath_new,"gif"), exist_ok=True)
         grid_count = len(os.listdir(outpath_new)) 
 
@@ -597,9 +609,11 @@ def main():
                                     #                                 face_img=image_ori['faces'], image_ori=image_ori,
                                     #                                 aligned_faces=None,
                                     #                                 only_embedding=True)
+                                    attr_caption = [f"a photo of sks with {attr}"]
+                                    attr_for_mask = {'caption':attr_caption}    # 将终端参数打包成与image_for_ddim相同的格式
                                     
                                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f] # 定义 latent 空间尺寸
-                                    image, x_T, all_latents, orig_mask, average_attention, controller = generate_original_image(model, 
+                                    image, x_T, all_latents, orig_mask, average_attention, controller, part_mask, x0 = generate_original_image(model,   # 生成部件掩码part_mask
                                                                                                     model_config = get_stable_diffusion_config(args),
                                                                                                     args=args,
                                                                                                     S=opt.ddim_steps,
@@ -612,7 +626,24 @@ def main():
                                                                                                     eta=opt.ddim_eta,
                                                                                                     x_T=start_code,
                                                                                                     image_for_ddim=image_for_ddim,  # 这里有人脸输入，但是主要是身份的输入。
-                                                                                                    use_prompt_mixing=use_prompt_mixing,)
+                                                                                                    use_prompt_mixing=use_prompt_mixing,
+                                                                                                    attr_for_mask = attr_for_mask, # 传入打包好的提示词,
+                                                                                                    )
+                                    print(f"reconstruction done!")
+                                    # image, x_T, all_latents, orig_mask, average_attention, controller = generate_original_image_ddim(model, 
+                                    #                                                                 model_config = get_stable_diffusion_config(args),
+                                    #                                                                 args=args,
+                                    #                                                                 S=opt.ddim_steps,
+                                    #                                                                 conditioning=c,
+                                    #                                                                 batch_size=opt.n_samples,
+                                    #                                                                 shape=shape,
+                                    #                                                                 verbose=False,
+                                    #                                                                 unconditional_guidance_scale=opt.scale,
+                                    #                                                                 unconditional_conditioning=uc,
+                                    #                                                                 eta=opt.ddim_eta,
+                                    #                                                                 x_T=start_code,
+                                    #                                                                 image_for_ddim=image_for_ddim,  # 这里有人脸输入，但是主要是身份的输入。
+                                    #                                                                 use_prompt_mixing=use_prompt_mixing,)
                                     # 这里输出的image，应该是对应生成的类原图，这里面应该能改，类似于图像重建。但是不用于后面的编辑操作，相当于保存重建结果。
                                     # print("keys: ", controller.attention_store["input_cross"][0].shape,
                                     #       controller.attention_store["middle_cross"][0].shape,
@@ -681,6 +712,7 @@ def main():
                                         # 保存样品
                                         torchvision.utils.save_image(transforms.ToTensor()(image[0]), os.path.join(outpath_new,"./pmm_sample_img.jpg"))
                                         torchvision.utils.save_image(torch.from_numpy(orig_mask).float(), os.path.join(outpath_new,"./pmm_sample_mask.jpg"))
+                                        torchvision.utils.save_image(torch.from_numpy(part_mask).float(), os.path.join(outpath_new,"./pmm_sample_part_mask.jpg"))
 
                                         if(attr is not None):   # 如果属性需要编辑
                                             object_of_interest_index = [prompts[0].split(" ").index("sks")+1, prompts[0].split(" ").index("sks") + 2]   # 找到 prompt 中需要编辑的对象 token 位置。
@@ -720,8 +752,9 @@ def main():
                                             controller = AttentionStore(args.low_resource)
 
                                         sampler_wrapper = DDIMSamplerWrapper(model, controller=controller, prompt_mixing=pm, model_config=get_stable_diffusion_config(args))    # 定义采样器
+                                        # sampler_wrapper = DDIMSampler(model)
                                         with torch.no_grad():   # 采样函数
-                                            samples_ddim, x_t, _, mask = sampler_wrapper.sample(args=args, 
+                                            samples_ddim, x_t, _, mask, _ = sampler_wrapper.sample(args=args,
                                                                                          S=opt.ddim_steps,
                                                                                          conditioning=c,
                                                                                          batch_size=opt.n_samples,
@@ -736,7 +769,10 @@ def main():
                                                                                          use_prompt_mixing=use_prompt_mixing,
                                                                                          post_background=args.background_post_process,
                                                                                          orig_all_latents=all_latents,  # 第二轮编辑的是这个
-                                                                                         orig_mask=orig_mask,)
+                                                                                         orig_mask=orig_mask,
+                                                                                         mask = part_mask,
+                                                                                         x0 = x0,
+                                                                                         ) # 将生成的部件掩码用于此
                                             
 
 

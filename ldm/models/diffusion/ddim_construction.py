@@ -5,8 +5,19 @@ import numpy as np
 from tqdm import tqdm
 from functools import partial
 
-from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, \
-    extract_into_tensor
+from ldm.modules.prompt_mixing.attention_based_segmentation2 import Segmentor
+from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionStore
+from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, extract_into_tensor
+
+def generate_original_image_ddim(model, args, **kwargs):
+    sampler = DDIMSampler(model)
+    image, x_t, orig_all_latents, _ = sampler.sample(args, **kwargs)
+    orig_mask = Segmentor(controller, kwargs["image_for_ddim"]['caption'], args.num_segments, args.background_segment_threshold,    # 生成背景mask
+                          background_nouns=args.background_nouns).get_background_mask(kwargs["image_for_ddim"]["caption"][-1].split(" ").index("sks")+1)
+    average_attention = controller.get_average_attention()
+    controller = AttentionStore(args.low_resource)
+
+    return image, x_t, orig_all_latents, orig_mask, average_attention, controller
 
 
 class DDIMSampler(object):
@@ -95,7 +106,7 @@ class DDIMSampler(object):
         size = (batch_size, C, H, W)
         print(f'Data shape for DDIM sampling is {size}, eta {eta}')
 
-        samples, intermediates = self.ddim_sampling(conditioning, size,
+        image, intermediates, all_latents = self.ddim_sampling(conditioning, size,
                                                     callback=callback,
                                                     img_callback=img_callback,
                                                     quantize_denoised=quantize_x0,
@@ -112,7 +123,7 @@ class DDIMSampler(object):
                                                     image_for_ddim=image_for_ddim,
                                                     use_prompt_mixing=use_prompt_mixing,
                                                     )
-        return samples, intermediates
+        return image, x_T, all_latents, None
 
     @torch.no_grad()
     def ddim_sampling(self, cond, shape,
@@ -141,6 +152,7 @@ class DDIMSampler(object):
 
         iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps, position=0)
 
+        all_latents = []
         # cond_list_for_each_timestep = []
         uc = cond
         for i, step in enumerate(iterator):
@@ -197,6 +209,7 @@ class DDIMSampler(object):
             # cond_list_for_each_timestep.append(cond.detach().cpu().numpy())
 
             img, pred_x0 = outs
+            all_latents.append(img)
             if callback: callback(i)
             if img_callback: img_callback(pred_x0, i)
 
@@ -212,7 +225,7 @@ class DDIMSampler(object):
         # with open("cond_list_for_each_timestep.json", "w") as f:
         #     json.dump(cond_json, f)  
 
-        return img, intermediates
+        return img, intermediates,all_latents 
 
     @torch.no_grad()
     def p_sample_ddim(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,

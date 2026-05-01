@@ -5,13 +5,13 @@ export PYTHONPATH="${PWD}"
 # 1. Input args
 SD_PATH=$1  # /Your/Path/To/sd-v1-4-full-ema.ckpt
 PROMPT_FILE=$2  # /Your/Path/To/Prompt_File.txt, e.g. ./infer_images/example_prompt.txt
-PROJECT_FOLDER=$3  # project folder name under ./logs/, e.g. training2023-06-20T14-58-59_celebbasis
-INTERPOLATION_ARGS=$4
-LORA_FINETUNED=${5: False}
-N_SAMPLES=${6:-1}  # n_samples per text (equals to batch_size), default: 8
-TEST_STEP=${7:-149999}  # the step of saved weights, default: 799
-LORA_SCALE=${8:-0.1}
-LORA_PATH2=${9:-""}
+PROJECT_FOLDER=$3  # project folder name under ./logs/, e.g. training2023-06-20T14-58-59_celebbasis 1
+INTERPOLATION_ARGS=$4 # "0,0,0,0"
+LORA_FINETUNED=${5: False}  # True
+N_SAMPLES=${6:-1}  # n_samples per text (equals to batch_size), default: 8 1
+TEST_STEP=${7:-149999}  # the step of saved weights, default: 799 49
+LORA_SCALE=${8:-0.1}  # 0.2
+LORA_PATH2=${9:-""} # 
 LORA2_SCALE=${10:-0.1}
 LORA_PATH3=${11:-""}
 LORA3_SCALE=${12:-0.1}
@@ -29,7 +29,7 @@ eval_id2_list=(0) # the id of the 2nd person, e.g. (0 1 2 3 4)
 
 
 #################### BEGIN #######################
-project_folder="${PROJECT_FOLDER}"
+project_folder="${PROJECT_FOLDER}" # 1
 project=${project_folder%_celebbasis}
 cfg_file="logs/${project_folder}/configs/${project}-project.yaml"
 echo "$cfg_file"

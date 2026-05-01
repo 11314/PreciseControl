@@ -1,5 +1,7 @@
 """SAMPLING ONLY."""
 
+import os
+from PIL import Image
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -18,14 +20,18 @@ from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyControll
 
 
 
-def generate_original_image(model, model_config, args, **kwargs):   # 这一步是生成原始图像。args是实验参数，这个kwargs-把所有额外的“关键字参数”打包成一个字典
-    co  ntroller = AttentionStore(args.low_resource)
+def generate_original_image(model, model_config, args, **kwargs):   # 这一步是生成原始图像。args是实验参数，这个kwargs-把所有额外的“关键字参数”打包成一个字典/新加一个mask_prompt参数
+    controller = AttentionStore(args.low_resource)
     ddim_sampler = DDIMSamplerWrapper(model=model, controller=controller, model_config=model_config)
-    image, x_t, orig_all_latents, _ = ddim_sampler.sample(args, **kwargs)
+    image, x_t, orig_all_latents, _, x0 = ddim_sampler.sample(args, **kwargs)
     orig_mask = Segmentor(controller, kwargs["image_for_ddim"]['caption'], args.num_segments, args.background_segment_threshold,    # 生成背景mask
                           background_nouns=args.background_nouns).get_background_mask(kwargs["image_for_ddim"]["caption"][-1].split(" ").index("sks")+1)
+    # tokens = prompts[-1].split(" ")
+    # obj_token_index = tokens.index(mask_prompt) + 1
+    mask = Segmentor(controller, kwargs["attr_for_mask"]["caption"], args.num_segments, args.background_segment_threshold,    # 生成部件mask
+                          background_nouns=args.background_nouns).get_background_mask(kwargs["attr_for_mask"]["caption"][-1].split(" ").index("sks")+2)    # 先试用这个试一下,这个get_background_mask传入的应该是个索引
     average_attention = controller.get_average_attention()
-    return image, x_t, orig_all_latents, orig_mask, average_attention, controller
+    return image, x_t, orig_all_latents, orig_mask, average_attention, controller, mask, x0
 
 
 class DDIMSamplerWrapper(object):
@@ -121,8 +127,9 @@ class DDIMSamplerWrapper(object):
         C, H, W = shape
         size = (batch_size, C, H, W)    # 构建latents tensor尺寸
         print(f'Data shape for DDIM sampling is {size}, eta {eta}')
+        attr_for_mask = kwargs.pop("attr_for_mask", None)
 
-        image, _ , all_latents, object_mask = self.ddim_sampling(args, conditioning, size,  # 调用ddim采样
+        image, x0, all_latents, object_mask = self.ddim_sampling(args, conditioning, size,  # 调用ddim采样
                                                     callback=callback,
                                                     img_callback=img_callback,
                                                     quantize_denoised=quantize_x0,
@@ -140,7 +147,7 @@ class DDIMSamplerWrapper(object):
                                                     orig_image_for_ddim=orig_image_for_ddim,
                                                     use_prompt_mixing=use_prompt_mixing,
                                                     **kwargs)
-        return image, x_T, all_latents, object_mask
+        return image, x_T, all_latents, object_mask, x0
 
     @torch.no_grad()
     def ddim_sampling(self, args, cond, shape,
@@ -149,7 +156,7 @@ class DDIMSamplerWrapper(object):
                       mask=None, x0=None, img_callback=None, log_every_t=100,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None,image_for_ddim=None,orig_image_for_ddim=None, use_prompt_mixing=False,
-                      post_background = False, orig_all_latents = None, orig_mask = None):
+                      post_background = False, orig_all_latents = None, orig_mask = None, mask_prompt=None):
         device = self.model.betas.device
         b = shape[0]
         if x_T is None: # 是否是初始噪声
@@ -182,13 +189,27 @@ class DDIMSamplerWrapper(object):
 
         uc = cond
         prev_cross_attn_iou = np.zeros((1,1,32,32)) # 初始换attention_iou
+
+        if mask is not None: 
+            import torch.nn.functional as F
+            print("mask shape before:", mask.shape)
+            mask = torch.as_tensor(mask, device=img.device).float()
+            mask = mask.unsqueeze(0).unsqueeze(0)
+            mask = F.interpolate(mask, size=(64, 64), mode="nearest")
+            mask = mask.repeat(img.shape[0], 1, 1, 1)
+            print("mask shape after:", mask.shape)
+
         for i, step in enumerate(iterator): # 进入扩散循环
             index = total_steps - i - 1
             ts = torch.full((b,), step, device=device, dtype=torch.long)
 
+            # print(f"[DEBUG] step {i}, mask is None? {mask is None}")  #已知，没有mask的传入
             if mask is not None:    # 如果存在mask
+                print(f"[DEBUG] Entered mask branch at step {i}")
                 assert x0 is not None
                 img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?，前向过程
+                print("img shape:", img.shape)
+                print("img_orig shape:", img_orig.shape)
                 img = img_orig * mask + (1. - mask) * img
 
             self.input_cross_index = 0  # 重置cross-attention index
@@ -308,7 +329,7 @@ class DDIMSamplerWrapper(object):
             #     intermediates['x_inter'].append(img)
             #     intermediates['pred_x0'].append(pred_x0)
             
-            del h_space, face_img, img_ori, aligned_faces, ts, c, cond, outs, pm_and_matching_args, pred_x0 # 删除临时变量
+            del h_space, face_img, img_ori, aligned_faces, ts, c, cond, outs, pm_and_matching_args # 删除临时变量, pred_x0
             if(two_ids):
                 del attn, token_attn, curr_noun_map, normalised_noun_map1, normalised_noun_map2, cross_attn_iou
 
@@ -319,7 +340,7 @@ class DDIMSamplerWrapper(object):
         #     json.dump(cond_json, f)
         image = self.latent2image(all_latents[-1])  # 最终 latent → image
 
-        return image, None, all_latents, object_mask
+        return image, pred_x0, all_latents, object_mask
     
     @torch.no_grad()
     def register_attention_control(self):   # 给 UNet 的 Attention 层注册一个自定义 forward 函数。
@@ -538,7 +559,7 @@ class DDIMSamplerWrapper(object):
     #            # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
     #            **kwargs):
     #     # controller = AttentionStore(args.ldm_stable_config["low_resource"])
-    #     self.controller = AttentionStore(True)
+    #     # self.controller = AttentionStore(True)    # 把传入的controller覆盖了
     #     image, x_T, all_latents, _ = self.sample(args, S, batch_size, shape, conditioning, callback, normals_sequence,
     #                                              img_callback, quantize_x0, eta, mask, x0, temperature, noise_dropout,
     #                                              score_corrector, corrector_kwargs, verbose, x_T, log_every_t,
@@ -546,7 +567,7 @@ class DDIMSamplerWrapper(object):
     #                                              image_for_ddim, orig_image_for_ddim, use_prompt_mixing, **kwargs)
     #     print("attention store keys :", self.controller.step_store.keys())
     #     print("attention store keys :", self.controller.attention_store.keys())
-    #     orig_mask = Segmentor(self.controller, orig_image_for_ddim['caption'], args.num_segments, args.background_segment_threshold, 
-    #                           background_nouns=args.background_nouns).get_background_mask("face")
+    #     orig_mask = Segmentor(self.controller, image_for_ddim['caption'], args.num_segments, args.background_segment_threshold, 
+    #                           background_nouns=args.background_nouns).get_background_mask(image_for_ddim['caption'][-1].split(" ").index("sks")+1)
     #     average_attention = self.controller.get_average_attention()
     #     return image, x_T, all_latents, orig_mask, average_attention
