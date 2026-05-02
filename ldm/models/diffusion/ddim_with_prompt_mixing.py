@@ -28,10 +28,10 @@ def generate_original_image(model, model_config, args, **kwargs):   # 这一步�
                           background_nouns=args.background_nouns).get_background_mask(kwargs["image_for_ddim"]["caption"][-1].split(" ").index("sks")+1)
     # tokens = prompts[-1].split(" ")
     # obj_token_index = tokens.index(mask_prompt) + 1
-    mask = Segmentor(controller, kwargs["attr_for_mask"]["caption"], args.num_segments, args.background_segment_threshold,    # 生成部件mask
-                          background_nouns=args.background_nouns).get_background_mask(kwargs["attr_for_mask"]["caption"][-1].split(" ").index("sks")+2)    # 先试用这个试一下,这个get_background_mask传入的应该是个索引
+    # mask = Segmentor(controller, kwargs["attr_for_mask"]["caption"], args.num_segments, args.background_segment_threshold,    # 生成部件mask
+    #                       background_nouns=args.background_nouns).get_background_mask(kwargs["attr_for_mask"]["caption"][-1].split(" ").index("sks")+2)    # 先试用这个试一下,这个get_background_mask传入的应该是个索引
     average_attention = controller.get_average_attention()
-    return image, x_t, orig_all_latents, orig_mask, average_attention, controller, mask, x0
+    return image, x_t, orig_all_latents, orig_mask, average_attention, x0
 
 
 class DDIMSamplerWrapper(object):

@@ -615,7 +615,7 @@ def main():
                                     attr_for_mask = {'caption':attr_caption}    # 将终端参数打包成与image_for_ddim相同的格式
                                     
                                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f] # 定义 latent 空间尺寸
-                                    image, x_T, all_latents, orig_mask, average_attention, controller, part_mask, x0 = generate_original_image(model,   # 生成部件掩码part_mask
+                                    image, x_T, all_latents, orig_mask, average_attention, x0 = generate_original_image(model,   # 生成部件掩码part_mask
                                                                                                     model_config = get_stable_diffusion_config(args),
                                                                                                     args=args,
                                                                                                     S=opt.ddim_steps,
@@ -772,7 +772,6 @@ def main():
                                                                                          post_background=args.background_post_process,
                                                                                          orig_all_latents=all_latents,  # 第二轮编辑的是这个
                                                                                          orig_mask=orig_mask,
-                                                                                         mask = part_mask,
                                                                                          x0 = x0,
                                                                                          ) # 将生成的部件掩码用于此                                       
 
