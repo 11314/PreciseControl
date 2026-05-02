@@ -714,7 +714,6 @@ def main():
                                         # 保存样品
                                         torchvision.utils.save_image(transforms.ToTensor()(image[0]), os.path.join(outpath_new,"./pmm_sample_img.jpg"))
                                         torchvision.utils.save_image(torch.from_numpy(orig_mask).float(), os.path.join(outpath_new,"./pmm_sample_mask.jpg"))
-                                        torchvision.utils.save_image(torch.from_numpy(part_mask).float(), os.path.join(outpath_new,"./pmm_sample_part_mask.jpg"))
 
                                         if(attr is not None):   # 如果属性需要编辑
                                             object_of_interest_index = [prompts[0].split(" ").index("sks")+1, prompts[0].split(" ").index("sks") + 2]   # 找到 prompt 中需要编辑的对象 token 位置。
