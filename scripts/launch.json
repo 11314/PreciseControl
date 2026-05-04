@@ -1,0 +1,52 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug PMM",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/PreciseControl/scripts/stable_txt2img_testing_pmm2_2.py",
+            "cwd": "${workspaceFolder}/PreciseControl",
+            "args": [
+                "--ddim_eta", "0.0",
+                "--n_samples", "1",
+                "--n_iter", "1",
+                "--scale", "5.0",
+                "--ddim_steps", "50",
+
+                "--embedding_path", "logs/1/checkpoints/embeddings_gs-49.pt",
+                "--ckpt", "./weights/v2-1_512-ema-pruned.ckpt",
+                "--from-file", "./infer_images/example_prompt_1.txt",
+
+                "--outdir", "outputs/1",
+                "--config", "logs/1/configs/1-project.yaml",
+
+                "--eval_id1", "0",
+                "--eval_id2", "0",
+                "--img_suffix", "0_0_49",
+
+                "--seed", "42",
+                "--interpolate_ids", "0 0 0 0",
+                "--eval_dataset", "ffhq",
+
+                "--lora_finetuned", "True",
+                "--lora_scale", "0.2",
+
+                "--lora2_path", "",
+                "--lora2_scale", "0.1",
+
+                "--lora3_path", "",
+                "--lora3_scale", "0.1",
+
+                "--file_name", "1.jpg",
+                "--attr", "beard"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/PreciseControl",
+                "TORCH_HOME": "/hxp/zy/pretrained_models/torch"
+            }
+        }
+    ]
+}

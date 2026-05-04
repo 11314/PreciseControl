@@ -441,7 +441,7 @@ class DDIMSamplerWrapper(object):
         if unconditional_conditioning is None or unconditional_guidance_scale == 1.:    # 如果不使用CFG
             self.uncond_pred = True
             c = (c, None)
-            e_t = self.model.apply_model(x, t, c)   # UNet预测噪声
+            e_t = self.model.apply_model(x, t, c)   # UNet预测噪声,Unet farward
         else:   # 如果使用CFG
             n = 2 if orig_image_for_ddim is None else 4 # 判断输入数量
             self.uncond_pred = False    # 标记非unconditional

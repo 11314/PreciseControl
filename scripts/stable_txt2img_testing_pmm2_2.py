@@ -1,6 +1,12 @@
 # 被02_start_test_pmm.sh调用，用于编辑单个人脸属性
 
 import argparse, os, sys, glob
+# sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# print("=== DEBUG PATH INFO ===")
+# print("CWD:", os.getcwd())
+# print("PYTHONPATH:", os.environ.get("PYTHONPATH"))
+# print("sys.path:", sys.path)
+# print("=======================")
 import torch
 import numpy as np
 import safetensors
@@ -36,6 +42,23 @@ from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyControll
 import pyrallis
 from dataclasses import dataclass, field
 from typing import List
+# import logging
+
+# LOG_PATH = "/hxp/zy/logs/26_5_3_PreC_debugger.log"
+# os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+
+# logging.basicConfig(
+#     level=logging.INFO,  # DEBUG / INFO / WARNING
+#     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+#     handlers=[
+#         logging.FileHandler(LOG_PATH, encoding="utf-8"),
+#         logging.StreamHandler()  # 同时输出到终端
+#     ]
+# )
+
+# logger = logging.getLogger(__name__)
+
+# logger.info("程序启动")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
