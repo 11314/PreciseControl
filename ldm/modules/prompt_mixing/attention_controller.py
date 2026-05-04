@@ -3,12 +3,14 @@ import abc
 import numpy as np
 import einops
 import torch
+import typing
 from enum import Enum
 from PIL import Image
 import torch.nn.functional as F
 from torchvision.utils import make_grid
 from safetensors.torch import load_file
 from torchvision.transforms import ToPILImage, ToTensor
+
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from diffusers.utils import (
@@ -17,9 +19,19 @@ from diffusers.utils import (
     scale_lora_layers,
     unscale_lora_layers,
 )
+if typing.TYPE_CHECKING: # 这些导入仅用于静态类型检查
+    from diffusers.models.attention import Attention
+    from diffusers.schedulers import KarrasDiffusionSchedulers
 
 
 logger = logging.get_logger(__name__)
+
+class DummyController:
+    def __call__(self, *args):
+        return args[0]
+
+    def __init__(self):
+        self.num_att_layers = 0
 
 # 它定义了 PartEdit 中“如何把注意力图（attention map）变成可用掩码”的策略集合。,阈值策略
 class Binarization(Enum):
@@ -990,3 +1002,109 @@ def get_replacement_mapper(prompts, tokenizer, max_len=77):
         mapper = get_replacement_mapper_(x_seq, prompts[i], tokenizer, max_len)
         mappers.append(mapper)
     return torch.stack(mappers)
+
+# 连接 UNet attention 与 controller
+class PartEditCrossAttnProcessor:
+    # Modified from https://github.com/RoyiRa/prompt-to-prompt-with-sdxl/blob/e579861f06962b697b37f3c6dd4813c2acdd55bd/processors.py#L11
+    def __init__(   # 初始化
+        self,
+        controller: AttentionStore,
+        place_in_unet,
+        store_this_layer: bool = True,
+    ):
+        super().__init__()
+        # print(">>> init PartEditCrossAttnProcessor")
+        self.controller = controller
+        assert issubclass(type(controller), AttentionControl), f"{controller} isn't subclass of AttentionControl"   # 检查controller来源
+        self.place_in_unet = place_in_unet  # 保存层位置
+        self.store_this_layer = store_this_layer    # 是否存储
+
+    def has_maps(self) -> bool: # 检查是否有mask，(跨step生成，聚合mask，外部提供mask)
+        return len(self.controller.mask_storage_step) > 0 or len(self.controller.mask_storage_agg) > 0 or self.controller.edit_mask is not None
+
+    def condition_for_editing(self) -> bool:    # 是否允许编辑
+        # If we have a given mask
+        # If we are using PartEdit
+        return self.controller.th_strategy.enabled
+
+    def __call__(   # UNet attention layer的forward hook
+        self,
+        attn: Attention,
+        hidden_states,
+        encoder_hidden_states=None,
+        attention_mask=None,
+    ):
+        # print(">>> In PartEditCrossAttnProcessor")
+        batch_size, sequence_length, _ = hidden_states.shape    # shape处理
+        attention_mask = attn.prepare_attention_mask(attention_mask, sequence_length, batch_size)   # 标准处理mask
+
+        query = attn.to_q(hidden_states)    # 计算Q
+
+        is_cross = encoder_hidden_states is not None    # 是否是交叉注意力
+        encoder_hidden_states = encoder_hidden_states if encoder_hidden_states is not None else hidden_states
+        key = attn.to_k(encoder_hidden_states)  # K和V
+        value = attn.to_v(encoder_hidden_states)
+
+        # initial_condition = hasattr(self, "controller") and hasattr(self.controller, "batch_indx") and batch_size > self.controller.batch_size
+
+        if hasattr(self, "controller") and self.controller._editing_allowed() and self.controller.batch_indx > 0:   # batch对齐
+            # Set the negative/positive of the batch index to the zero image
+            batch_indx = self.controller.batch_indx
+            _bs = self.controller.batch_size    # prompt数量
+            query[[batch_indx, batch_indx + _bs]] = query[[0, _bs]] # 把编辑样本的Q替换为原始样本的Q
+            # value[[batch_indx, batch_indx+_bs]] = value[[0, _bs]]
+
+        query = attn.head_to_batch_dim(query)   # 将这是三个reshape到multi-head格式
+        key = attn.head_to_batch_dim(key)
+        value = attn.head_to_batch_dim(value)
+
+        attention_probs = attn.get_attention_scores(query, key, attention_mask) # 计算attention
+
+        self.controller(attention_probs, is_cross, self.place_in_unet, self.store_this_layer)   # 调用controller
+
+        hidden_states = torch.bmm(attention_probs, value)   # attention * v
+        hidden_states = attn.batch_to_head_dim(hidden_states)
+
+        # linear proj
+        hidden_states = attn.to_out[0](hidden_states)   # 线性投影
+        # dropout
+        hidden_states = attn.to_out[1](hidden_states)
+
+        res = int(np.sqrt(hidden_states.shape[1]))  # 计算空间尺寸
+
+        should_edit = ( # 是否执行Partedit
+            hasattr(self, "controller")
+            and self.controller._editing_allowed()  # allow_edit_control
+            and self.has_maps() 
+            and self.condition_for_editing()
+            and self.controller.cur_step > self.controller.start_editing_at
+            and self.controller.cur_step < self.controller.edit_steps
+        )
+        # print("if inter Partedit?")
+        if should_edit: # 进入核心
+            # print("inter Partedit ")
+            if self.controller.th_strategy == Binarization.PROVIDED_MASK:   # 如果用户提供mask
+                mask_t_res = self.controller.edit_mask.to(hidden_states.device)
+                # resize to reshape
+                mask_t_res = F.interpolate(mask_t_res, (res, res), mode="bilinear").reshape(1, -1, 1)
+            else:   # attention生成mask
+                mask_t_res = self.controller.get_maps_agg(
+                    res=res,
+                    device=hidden_states.device,
+                    use_agg_store=self.controller.use_agg_store,  # Agg is across time, Step is last step without time agg
+                )  # 在cross_attention_kwargs管道中提供
+                # Note: Additional blending with grounding
+                _extra_grounding = self.controller.extra_kwargs.get("grounding", None)
+                if _extra_grounding is not None:
+                    mask_t_res = mask_t_res * F.interpolate(_extra_grounding, (res, res), mode="bilinear").reshape(1, -1, 1).to(hidden_states.device)
+
+            # 核心融合
+            b1_u = 0
+            b1_c = self.controller.batch_size
+            b2_u = 1
+            b2_c = self.controller.batch_size + 1
+            hidden_states[b2_u] = (1 - mask_t_res) * hidden_states[b1_u] + mask_t_res * hidden_states[b2_u]
+            hidden_states[b2_c] = (1 - mask_t_res) * hidden_states[b1_c] + mask_t_res * hidden_states[b2_c]
+            # mask区域使用编辑结果，非mask区域用原始结果
+
+        return hidden_states

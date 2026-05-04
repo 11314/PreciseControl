@@ -8,14 +8,16 @@ from tqdm import tqdm
 from functools import partial
 from cv2 import dilate
 from einops import rearrange, repeat
+from diffusers.models.attention_processor import AttnProcessor2_0
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, \
     extract_into_tensor
 
 from ldm.modules.prompt_mixing.attention_based_segmentation2 import Segmentor
 from ldm.modules.prompt_mixing.attention_utils import show_cross_attention, aggregate_attention, get_current_cross_attn
-from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionStore
-# from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace
+# from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionStore
+from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace, PartEditCrossAttnProcessor, LocalBlend, DummyController
 
 
 
@@ -341,88 +343,85 @@ class DDIMSamplerWrapper(object):
         image = self.latent2image(all_latents[-1])  # 最终 latent → image
 
         return image, pred_x0, all_latents, object_mask
+
+def create_controller(
+    prompts: List[str],
+    cross_attention_kwargs: Dict,
+    num_inference_steps: int,
+    tokenizer,
+    device: torch.device,
+    attn_res: Tuple[int, int],
+    extra_kwargs: dict,
+) -> AttentionControl:
+    edit_type = cross_attention_kwargs.get("edit_type", "replace")  # 从字典里取编辑类型
+    local_blend_words = cross_attention_kwargs.get("local_blend_words") # 是否局部编辑
+    equalizer_words = cross_attention_kwargs.get("equalizer_words") # 
+    equalizer_strengths = cross_attention_kwargs.get("equalizer_strengths")
+    n_cross_replace = cross_attention_kwargs.get("n_cross_replace", 0.4)    # 注意力替换比例
+    n_self_replace = cross_attention_kwargs.get("n_self_replace", 0.4)
+    print("local_blend_words is ",local_blend_words)
+    print("cross_attention_kwargs is ", cross_attention_kwargs)
+    print ("Whatever use LB?")
+
+
+    # 局部替换，使用的是这个分支
+    if edit_type == "replace" and local_blend_words is not None:
+        print("yes")
+        lb = LocalBlend(
+            prompts,
+            local_blend_words,
+            tokenizer=tokenizer,
+            device=device,
+            attn_res=attn_res,
+        )
+        return AttentionReplace(
+            prompts,
+            num_inference_steps,
+            n_cross_replace,
+            n_self_replace,
+            lb,
+            tokenizer=tokenizer,
+            device=device,
+            attn_res=attn_res,
+            extra_kwargs=extra_kwargs,
+        )
     
     @torch.no_grad()
-    def register_attention_control(self):   # 给 UNet 的 Attention 层注册一个自定义 forward 函数。
-        def ca_forward(model_self, place_in_unet):
-            to_out = model_self.to_out
-            if type(to_out) is torch.nn.modules.container.ModuleList:
-                to_out = model_self.to_out[0]
-            else:
-                to_out = model_self.to_out
-
-            def forward(x, context=None, mask=None):
-                batch_size, sequence_length, dim = x.shape
-                h = model_self.heads
-                q = model_self.to_q(x)
-                is_cross = context is not None
-                context = context if is_cross else (x, None)
-
-                k = model_self.to_k(context[0])
-                if is_cross and self.prompt_mixing is not None:
-                    v_context = self.prompt_mixing.get_context_for_v(self.diff_step, context[0], context[1])
-                    v = model_self.to_v(v_context)
-                else:
-                    v = model_self.to_v(context[0])
-                q = rearrange(q, "b t (h d) -> (b h) t d", h=h)
-                k = rearrange(k, "b i (h d) -> (b h) i d", h=h)
-                v = rearrange(v, "b i (h d) -> (b h) i d", h=h)
-
-                sim = torch.einsum("b i d, b j d -> b i j", q, k) * model_self.scale
-
-                if mask is not None:
-                    mask = mask.reshape(batch_size, -1)
-                    max_neg_value = -torch.finfo(sim.dtype).max
-                    mask = mask[:, None, :].repeat(h, 1, 1)
-                    sim.masked_fill_(~mask, max_neg_value)
-
-                # attention, what we cannot get enough of
-                attn = sim.softmax(dim=-1)
-                # print("place in unet : ", place_in_unet)
-                # print("attn shape : ", attn.shape)
-                if self.enbale_attn_controller_changes:
-                    attn = self.controller(attn, is_cross, place_in_unet)
-                
-                # print("attn shape after self controller: ", attn.shape)
-                if is_cross and self.prompt_mixing is not None and context[1] is not None:
-                    attn = self.prompt_mixing.get_cross_attn(self, self.diff_step, attn, place_in_unet, batch_size)
-
-                if not is_cross and (not self.model_config["low_resource"] or not self.uncond_pred) and self.prompt_mixing is not None:
-                    # print("self attn shape : ", attn.shape)
-                    attn = self.prompt_mixing.get_self_attn(self, self.diff_step, attn, place_in_unet, batch_size)
-
-                out = torch.einsum("b i j, b j d -> b i d", attn, v)
-                out = rearrange(out, "(b h) t d -> b t (h d)", h=h)
-                return to_out(out)
-
-            return forward
-
-        def register_recr(net_, count, place_in_unet):
-            if net_.__class__.__name__ == 'CrossAttention':
-                net_.forward = ca_forward(net_, place_in_unet)
-                return count + 1
-            elif hasattr(net_, 'children'):
-                for net__ in net_.children():
-                    count = register_recr(net__, count, place_in_unet)
-            return count
-
+    # 在 UNet 中注册并配置注意力（attention）控制器，允许 PartEdit 对扩散模型的 cross-attention 层进行控制。
+    def register_attention_control(self, controller):
+        attn_procs = {}
         cross_att_count = 0
-        sub_nets = self.model.model.named_children().__iter__().__next__()[1].named_children()
-        for net in sub_nets:
-            # print(net[0])
-            if "input" in net[0]:
-                cross_att_count += register_recr(net[1], 0, "input")
-            elif "output" in net[0]:
-                cross_att_count += register_recr(net[1], 0, "output")
-            elif "middle" in net[0]:
-                cross_att_count += register_recr(net[1], 0, "middle")
-        self.controller.num_att_layers = cross_att_count
+        self.attn_names = {}  # Name => Idx
+        for name in self.unet.attn_processors:  # 这里开始循环遍历 UNet 中的所有 attention 层。
+            (None if name.endswith("attn1.processor") else self.unet.config.cross_attention_dim)    # 跳过指定的层
+            if name.startswith("mid_block"):    # 判断当前层是否属于 UNet 的中间部分（mid_block）。 
+                self.unet.config.block_out_channels[-1]
+                place_in_unet = "mid"
+            elif name.startswith("up_blocks"):  # 判断当前层是否属于 UNet 的上采样部分（up_blocks）。
+                block_id = int(name[len("up_blocks.")]) # 如果是，那就提取块的编号，
+                list(reversed(self.unet.config.block_out_channels))[block_id]
+                place_in_unet = "up"
+            elif name.startswith("down_blocks"):    # 同理
+                block_id = int(name[len("down_blocks.")])
+                self.unet.config.block_out_channels[block_id]
+                place_in_unet = "down"
+            else:
+                continue
+            attn_procs[name] = PartEditCrossAttnProcessor(controller=controller, place_in_unet=place_in_unet)   # 创建 PartEditCrossAttnProcessor，下面有具体定义。
+            # print(f'{cross_att_count}=>{name}')
+            cross_att_count += 1    # 每添加一个 cross-attention 层，cross_att_count 就加 1，统计需要控制的层数。
 
-    # @torch.no_grad()
-    # def diffusion_step(self, latents, context, t, other_context=None):
-    #     latents = self.p_sample_ddim(latents, context, t)[0]
-    #     latents = self.controller.step_callback(latents)
-    #     return latents
+        self.unet.set_attn_processor(attn_procs)    # 将 attn_procs 传给 self.unet。
+        controller.num_att_layers = cross_att_count # 更新 controller 对象中的 num_att_layers，标记有多少个 attention 层需要控制。
+
+    def unregister_attention_control(self):
+        # if pytorch >= 2.0
+        self.unet.set_attn_processor(AttnProcessor2_0())    # 将 UNet 的 attention 处理器恢复为标准的 UNet cross-attention 处理器。
+        if hasattr(self, "controller") and self.controller is not None: # 检查 self 是否具有 controller 属性，且 controller 不为 None。
+            if hasattr(self.controller, "last_otsu"):   # 如果 controller 具有 last_otsu 属性，就将 最后一个 OTSU 阈值保存到 self.last_otsu_value 中。
+                self.last_otsu_value = self.controller.last_otsu[-1]
+            del self.controller # 删除 controller 对象，释放内存。
+            # self.controller.allow_edit_control = False
     
     @torch.no_grad()
     def latent2image(self, latents):

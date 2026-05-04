@@ -36,8 +36,8 @@ from evaluation.prompt_templates import get_pos_neg_temps
 from src.lora.lora_diffusion.lora import inject_trainable_lora, monkeypatch_or_replace_lora, tune_lora_scale
 
 from ldm.modules.prompt_mixing.prompt_mixing import PromptMixing
-from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionReplace, AttentionStore
-# from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace
+# from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionReplace, AttentionStore
+from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace
 
 import pyrallis
 from dataclasses import dataclass, field
