@@ -1,5 +1,5 @@
 # 被02_start_test_pmm.sh调用，用于编辑单个人脸属性
-
+print(">>> program started")
 import argparse, os, sys, glob
 import torch
 import numpy as np
@@ -19,7 +19,6 @@ import pickle
 import cv2
 from torchvision.transforms import transforms
 import nltk
-
 from ldm.util import instantiate_from_config
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.models.diffusion.ddim_with_prompt_mixing import DDIMSamplerWrapper, generate_original_image
@@ -297,7 +296,7 @@ def main():
         default="",
         help="The suffix of saved images.")
     # 获取类型为int列表的interpolate id参数
-    parser.add_argument("--interpolate_ids", type=list_of_ints, default=[0],
+    parser.add_argument("--interpolate_ids", type=int, nargs=4, default=[0, 0, 0, 0],   # 正常运行为：type=list_of_ints, default=[0],
                         help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
 
     opt = parser.parse_args()
