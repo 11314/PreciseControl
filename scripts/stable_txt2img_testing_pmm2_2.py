@@ -9,6 +9,7 @@ from tqdm import tqdm, trange
 from itertools import islice
 from einops import rearrange
 import torchvision
+import safetensors
 from torchvision.utils import make_grid
 import time
 from pytorch_lightning import seed_everything
