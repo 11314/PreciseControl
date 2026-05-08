@@ -2,6 +2,7 @@
 # 实现单人脸的属性编辑，
 
 export PYTHONPATH="${PWD}"
+# export CUDA_VISIBLE_DEVICES=2
 
 # 1. Input args
 SD_PATH=$1  # .ckpt权重文件的路径

@@ -151,7 +151,7 @@ class DDIMSamplerWrapper(object):
                       unconditional_guidance_scale=1., unconditional_conditioning=None,image_for_ddim=None,orig_image_for_ddim=None, use_prompt_mixing=False,
                       post_background = False, orig_all_latents = None, orig_mask = None):
         device = self.model.betas.device
-        b = shape[0]
+        b = shape[0]    # 在这个，查看image_for_ddim和orig_image_for_ddim两个参数的情况
         if x_T is None: # 是否是初始噪声
             # img = torch.randn(shape, device=device)
             img = torch.randn((4,shape[1],shape[2],shape[3]), device=device)    # 生成随机噪声
@@ -174,7 +174,7 @@ class DDIMSamplerWrapper(object):
 
         iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps, position=0) # 创建进度条
 
-        self.enbale_attn_controller_changes = True  # 使用attention_control
+        self.enbale_attn_controller_changes = True  # 使用attention_control，查看这个断点的attention作用
         object_mask = None
         self.diff_step = 0
         all_latents = []
@@ -229,8 +229,8 @@ class DDIMSamplerWrapper(object):
                 other_cond = self.model.get_learned_conditioning(c, face_img, image_ori=orig_image_for_ddim['image_ori'],aligned_faces=aligned_faces,
                                                                     h_space=h_space)
                 other_cond = torch.cat([cond, other_cond])  # 拼接条件
-
-            outs = self.p_sample_ddim(args, img, cond, ts, index=index, use_original_steps=ddim_use_original_steps, # 然后进入ddim step，跳转到p_sample_ddim函数
+            # 查看断点x,orig_image_for_ddim,unconditional_conditioning的情况
+            outs = self.p_sample_ddim(args, img, cond, ts, index=index, use_original_steps=ddim_use_original_steps, # 然后进入ddim step，跳转到p_sample_ddim函数，
                                       quantize_denoised=quantize_denoised, temperature=temperature,
                                       noise_dropout=noise_dropout, score_corrector=score_corrector,
                                       corrector_kwargs=corrector_kwargs,
@@ -347,7 +347,7 @@ class DDIMSamplerWrapper(object):
                 k = rearrange(k, "b i (h d) -> (b h) i d", h=h)
                 v = rearrange(v, "b i (h d) -> (b h) i d", h=h)
 
-                sim = torch.einsum("b i d, b j d -> b i j", q, k) * model_self.scale
+                sim = torch.einsum("b i d, b j d -> b i j", q, k) * model_self.scale    # 未归一化注意力
 
                 if mask is not None:
                     mask = mask.reshape(batch_size, -1)
@@ -355,8 +355,8 @@ class DDIMSamplerWrapper(object):
                     mask = mask[:, None, :].repeat(h, 1, 1)
                     sim.masked_fill_(~mask, max_neg_value)
 
-                # attention, what we cannot get enough of
-                attn = sim.softmax(dim=-1)
+                # 注意力，这是无法满足的
+                attn = sim.softmax(dim=-1)  # 是真正的注意力图
                 # print("place in unet : ", place_in_unet)
                 # print("attn shape : ", attn.shape)
                 if self.enbale_attn_controller_changes:
@@ -434,10 +434,10 @@ class DDIMSamplerWrapper(object):
             #     other_cond = torch.cat([unconditional_conditioning, other_cond])
             # print("c_in shape, t_in shape x_in shape:", c_in.shape, t_in.shape, x_in.shape)
             c_in = (c_in, other_cond)   
-            e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2) # UNet预测噪声  
+            e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2) # UNet预测噪声 
             e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)    # CFG公式
 
-        if score_corrector is not None: # 如果使用 score correction 方法。
+        if score_corrector is not None: # 如果使用 score correction 方法。重建跳
             assert self.model.parameterization == "eps" # 检查参数化
             e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)    # 修改score
 

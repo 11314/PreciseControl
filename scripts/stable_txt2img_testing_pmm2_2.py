@@ -721,7 +721,7 @@ def main():
 
                                         sampler_wrapper = DDIMSamplerWrapper(model, controller=controller, prompt_mixing=pm, model_config=get_stable_diffusion_config(args))    # 定义采样器
                                         with torch.no_grad():   # 采样函数
-                                            samples_ddim, x_t, _, mask = sampler_wrapper.sample(args=args, 
+                                            samples_ddim, x_t, _, mask = sampler_wrapper.sample(args=args,  # 这个断点查看这个sample后续的函数调用流程
                                                                                          S=opt.ddim_steps,
                                                                                          conditioning=c,
                                                                                          batch_size=opt.n_samples,
