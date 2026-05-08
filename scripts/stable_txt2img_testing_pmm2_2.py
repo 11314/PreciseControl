@@ -297,7 +297,9 @@ def main():
         default="",
         help="The suffix of saved images.")
     # 获取类型为int列表的interpolate id参数
-    parser.add_argument("--interpolate_ids", type=int, nargs=4, default=[0, 0, 0, 0],   # 正常运行为：type=list_of_ints, default=[0],
+    # parser.add_argument("--interpolate_ids", type=int, nargs=4, default=[0, 0, 0, 0],   # 调试使用
+    #                     help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
+    parser.add_argument("--interpolate_ids", type=list_of_ints, default=[0],   # 正常运行使用
                         help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
 
     opt = parser.parse_args()
@@ -599,7 +601,7 @@ def main():
                                     #                                 only_embedding=True)
                                     
                                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f] # 定义 latent 空间尺寸
-                                    image, x_T, all_latents, orig_mask, average_attention, controller = generate_original_image(model, 
+                                    image, x_T, all_latents, orig_mask, average_attention, controller, object_mask = generate_original_image(model, 
                                                                                                     model_config = get_stable_diffusion_config(args),
                                                                                                     args=args,
                                                                                                     S=opt.ddim_steps,
@@ -681,6 +683,7 @@ def main():
                                         # 保存样品
                                         torchvision.utils.save_image(transforms.ToTensor()(image[0]), os.path.join(outpath_new,"./pmm_sample_img.jpg"))
                                         torchvision.utils.save_image(torch.from_numpy(orig_mask).float(), os.path.join(outpath_new,"./pmm_sample_mask.jpg"))
+                                        torchvision.utils.save_image(torch.from_numpy(object_mask).float(), os.path.join(outpath_new,"./pmm_sample_mask.jpg"))  # 保存注意力掩码
 
                                         if(attr is not None):   # 如果属性需要编辑
                                             object_of_interest_index = [prompts[0].split(" ").index("sks")+1, prompts[0].split(" ").index("sks") + 2]   # 找到 prompt 中需要编辑的对象 token 位置。
