@@ -24,7 +24,7 @@ class Segmentor:
         sks_flag_orig = True if "sks" in prompts_for_tokenization else False
         ks_flag = True if " ks" in prompts_for_tokenization else False
         prompts_for_tokenization = prompts_for_tokenization.replace(" ks", " ks rn")
-        tokenized_prompt = nltk.word_tokenize(prompts_for_tokenization)
+        tokenized_prompt = prompts_for_tokenization.split(" ")
 
         # print("tokenized prompt :", tokenized_prompt)
         self.nouns = [(i, word) for (i, (word, pos)) in enumerate(nltk.pos_tag(tokenized_prompt)) if pos[:2] == 'NN']

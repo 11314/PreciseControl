@@ -27,9 +27,11 @@ def get_current_cross_attn(attention_store: AttentionStore, res: int, from_where
     num_pixels = res ** 2
     for location in from_where:
         for item in attention_maps[f"{location}_{'cross' if is_cross else 'self'}"]:
-            if item.shape[1] == num_pixels:
-                cross_maps = item.reshape(len(prompts), -1, res, res, item.shape[-1])[select]
-                out.append(cross_maps)
+            spatial = int(item.shape[1] ** 0.5)
+            if spatial * spatial != item.shape[1]:
+                continue
+            cross_maps = item.reshape(len(prompts), -1, spatial, spatial, item.shape[-1])[select]
+            out.append(cross_maps)
     out = torch.cat(out, dim=0)
     out = out.sum(0) / out.shape[0]
     return out
