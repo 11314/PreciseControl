@@ -17,7 +17,7 @@ from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, mak
 from ldm.modules.prompt_mixing.attention_based_segmentation2 import Segmentor
 from ldm.modules.prompt_mixing.attention_utils import show_cross_attention, aggregate_attention, get_current_cross_attn
 # from ldm.modules.prompt_mixing.prompt_to_prompt_controllers import DummyController, AttentionStore
-from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace, PartEditCrossAttnProcessor, LocalBlend, DummyController
+from ldm.modules.prompt_mixing.attention_controller import AttentionControl, AttentionStore, AttentionControlEdit, AttentionReplace, PartEditCrossAttnProcessor, LocalBlend, DummyController, DotDictExtra
 
 
 
@@ -324,47 +324,6 @@ class DDIMSamplerWrapper(object):
 
         return image, pred_x0, all_latents, object_mask
 
-def create_controller(
-    prompts: List[str],
-    cross_attention_kwargs: Dict,
-    num_inference_steps: int,
-    tokenizer,
-    device: torch.device,
-    attn_res: Tuple[int, int],
-    extra_kwargs: dict,
-) -> AttentionControl:
-    edit_type = cross_attention_kwargs.get("edit_type", "replace")  # 从字典里取编辑类型
-    local_blend_words = cross_attention_kwargs.get("local_blend_words") # 是否局部编辑
-    equalizer_words = cross_attention_kwargs.get("equalizer_words") # 
-    equalizer_strengths = cross_attention_kwargs.get("equalizer_strengths")
-    n_cross_replace = cross_attention_kwargs.get("n_cross_replace", 0.4)    # 注意力替换比例
-    n_self_replace = cross_attention_kwargs.get("n_self_replace", 0.4)
-    print("local_blend_words is ",local_blend_words)
-    print("cross_attention_kwargs is ", cross_attention_kwargs)
-    print ("Whatever use LB?")
-
-
-    # 局部替换，使用的是这个分支
-    if edit_type == "replace" and local_blend_words is not None:
-        print("yes")
-        lb = LocalBlend(
-            prompts,
-            local_blend_words,
-            tokenizer=tokenizer,
-            device=device,
-            attn_res=attn_res,
-        )
-        return AttentionReplace(
-            prompts,
-            num_inference_steps,
-            n_cross_replace,
-            n_self_replace,
-            lb,
-            tokenizer=tokenizer,
-            device=device,
-            attn_res=attn_res,
-            extra_kwargs=extra_kwargs,
-        )
     
     @torch.no_grad()
     # 在 UNet 中注册并配置注意力（attention）控制器，允许 PartEdit 对扩散模型的 cross-attention 层进行控制。
@@ -508,3 +467,43 @@ def create_controller(
                                           unconditional_guidance_scale=unconditional_guidance_scale,
                                           unconditional_conditioning=unconditional_conditioning)
         return x_dec
+
+def create_controller(
+    prompts: List[str],
+    cross_attention_kwargs: Dict,
+    num_inference_steps: int,
+    tokenizer,
+    device: torch.device,
+    attn_res: Tuple[int, int],
+    extra_kwargs: dict,
+) -> AttentionControl:
+    edit_type = cross_attention_kwargs.get("edit_type", "replace")  # 从字典里取编辑类型
+    local_blend_words = cross_attention_kwargs.get("local_blend_words") # 是否局部编辑
+    n_cross_replace = cross_attention_kwargs.get("n_cross_replace", 0.4)    # 注意力替换比例
+    n_self_replace = cross_attention_kwargs.get("n_self_replace", 0.4)
+    print("local_blend_words is ",local_blend_words)
+    print("cross_attention_kwargs is ", cross_attention_kwargs)
+    print ("Whatever use LB?")
+
+
+    # 局部替换，使用的是这个分支
+    if edit_type == "replace" and local_blend_words is not None:
+        print("yes")
+        lb = LocalBlend(
+            prompts,
+            local_blend_words,
+            tokenizer=tokenizer,
+            device=device,
+            attn_res=attn_res,
+        )
+        return AttentionReplace(
+            prompts,
+            num_inference_steps,
+            n_cross_replace,
+            n_self_replace,
+            lb,
+            tokenizer=tokenizer,
+            device=device,
+            attn_res=attn_res,
+            extra_kwargs=extra_kwargs,
+        )
