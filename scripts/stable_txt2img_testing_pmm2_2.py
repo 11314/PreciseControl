@@ -297,8 +297,10 @@ def main():
         default="",
         help="The suffix of saved images.")
     # 获取类型为int列表的interpolate id参数
-    parser.add_argument("--interpolate_ids", type=int, nargs=4, default=[0, 0, 0, 0],   # 正常运行为：type=list_of_ints, default=[0],
-                        help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
+    # parser.add_argument("--interpolate_ids", type=int, nargs=4, default=[0, 0, 0, 0],   # 调试运行
+    #                     help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
+    parser.add_argument("--interpolate_ids", type=list_of_ints, default=[0],   # 正常运行
+                          help="The ids to interpolate. structure [id1, id2, output interpolation number, total interpolation needed]]]")
 
     opt = parser.parse_args()
     print("Interpolate ids:", opt.interpolate_ids)
