@@ -28,10 +28,7 @@ def generate_original_image(model, model_config, args, **kwargs):   # 这一步�
     image, x_t, orig_all_latents, _, x0 = ddim_sampler.sample(args, **kwargs)
     orig_mask = Segmentor(controller, kwargs["image_for_ddim"]['caption'], args.num_segments, args.background_segment_threshold,    # 生成背景mask
                           background_nouns=args.background_nouns).get_background_mask(kwargs["image_for_ddim"]["caption"][-1].split(" ").index("sks")+1)
-    # tokens = prompts[-1].split(" ")
-    # obj_token_index = tokens.index(mask_prompt) + 1
-    # mask = Segmentor(controller, kwargs["attr_for_mask"]["caption"], args.num_segments, args.background_segment_threshold,    # 生成部件mask
-    #                       background_nouns=args.background_nouns).get_background_mask(kwargs["attr_for_mask"]["caption"][-1].split(" ").index("sks")+2)    # 先试用这个试一下,这个get_background_mask传入的应该是个索引
+
     average_attention = controller.get_average_attention()
     return image, x_t, orig_all_latents, orig_mask, average_attention, x0
 
@@ -228,8 +225,7 @@ class DDIMSamplerWrapper(object):
                 c = image_for_ddim['caption']
                 if(use_prompt_mixing):
                     steps_for_prompt_mixing = image_for_ddim['steps_for_prompt_mixing']
-            # h_space_feature = self.model.apply_model(img, ts, (uc,None), return_hspace=True)
-            # h_space = {'h_space_feat': h_space_feature, 't':ts}
+
             h_space = {'h_space_feat': None, 't':ts}    # 构建hidden—space
 
             other_cond = None
@@ -238,10 +234,7 @@ class DDIMSamplerWrapper(object):
                 # print("prompt mixing")
                 c = prompt_mixing_text
                 cond = self.model.get_learned_conditioning(c, face_img=face_img, image_ori=img_ori,aligned_faces=aligned_faces,h_space=h_space) # 将条件进行编码
-                # getting other context
-                # if(orig_image_for_ddim is not None):
-                #     other_cond = self.model.get_learned_conditioning(c, face_img, image_ori=orig_image_for_ddim['image_ori'],aligned_faces=aligned_faces,
-                #                                                      h_space=h_space)
+
                 
             else:
                 # c = c*face_img.shape[0]
@@ -260,7 +253,7 @@ class DDIMSamplerWrapper(object):
                                       unconditional_guidance_scale=unconditional_guidance_scale,
                                       unconditional_conditioning=unconditional_conditioning, other_cond=other_cond, orig_image_for_ddim=orig_image_for_ddim)
             
-            # cond_list_for_each_timestep.append(cond.detach().cpu().numpy())
+
             img = outs[0]   # 更新latents
             img = self.controller.step_callback(img)    # attention controller 回调
 
@@ -322,24 +315,11 @@ class DDIMSamplerWrapper(object):
 
             img, pred_x0 = outs
 
-            # if(two_ids):
-            #     img = img - iou_alpha * transforms.Resize((64,64))(torch.from_numpy(grad_attn_iou).float().to(img.device).view(1,1,32,32))
-            # if callback: callback(i)
-            # if img_callback: img_callback(pred_x0, i)
-
-            # if index % log_every_t == 0 or index == total_steps - 1:
-            #     intermediates['x_inter'].append(img)
-            #     intermediates['pred_x0'].append(pred_x0)
             
             del h_space, face_img, img_ori, aligned_faces, ts, c, cond, outs, pm_and_matching_args # 删除临时变量, pred_x0
             if(two_ids):
                 del attn, token_attn, curr_noun_map, normalised_noun_map1, normalised_noun_map2, cross_attn_iou
 
-        # save the condition for each timestep as json
-        # cond_json = {'cond_list': cond_list_for_each_timestep}
-        # import json
-        # with open("cond_list_for_each_timestep.json", "w") as f:
-        #     json.dump(cond_json, f)
         image = self.latent2image(all_latents[-1])  # 最终 latent → image
 
         return image, pred_x0, all_latents, object_mask
@@ -450,9 +430,7 @@ def create_controller(
                 c_in = torch.cat([unconditional_conditioning, unconditional_conditioning, c, c])    # 拼接条件
             else:
                 c_in = torch.cat([unconditional_conditioning, c])
-            # if(other_cond is not None):
-            #     other_cond = torch.cat([unconditional_conditioning, other_cond])
-            # print("c_in shape, t_in shape x_in shape:", c_in.shape, t_in.shape, x_in.shape)
+
             c_in = (c_in, other_cond)   
             e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2) # UNet预测噪声  
             e_t = e_t_uncond + unconditional_guidance_scale * (e_t - e_t_uncond)    # CFG公式
@@ -530,43 +508,3 @@ def create_controller(
                                           unconditional_guidance_scale=unconditional_guidance_scale,
                                           unconditional_conditioning=unconditional_conditioning)
         return x_dec
-    
-    # def get_original_image(self, args,
-    #            S,
-    #            batch_size,
-    #            shape,
-    #            conditioning=None,
-    #            callback=None,
-    #            normals_sequence=None,
-    #            img_callback=None,
-    #            quantize_x0=False,
-    #            eta=0.,
-    #            mask=None,
-    #            x0=None,
-    #            temperature=1.,
-    #            noise_dropout=0.,
-    #            score_corrector=None,
-    #            corrector_kwargs=None,
-    #            verbose=True,
-    #            x_T=None,
-    #            log_every_t=100,
-    #            unconditional_guidance_scale=1.,
-    #            unconditional_conditioning=None,
-    #            image_for_ddim=None,
-    #            orig_image_for_ddim=None,
-    #            use_prompt_mixing=False,
-    #            # this has to come in the same format as the conditioning, # e.g. as encoded tokens, ...
-    #            **kwargs):
-    #     # controller = AttentionStore(args.ldm_stable_config["low_resource"])
-    #     # self.controller = AttentionStore(True)    # 把传入的controller覆盖了
-    #     image, x_T, all_latents, _ = self.sample(args, S, batch_size, shape, conditioning, callback, normals_sequence,
-    #                                              img_callback, quantize_x0, eta, mask, x0, temperature, noise_dropout,
-    #                                              score_corrector, corrector_kwargs, verbose, x_T, log_every_t,
-    #                                              unconditional_guidance_scale, unconditional_conditioning,
-    #                                              image_for_ddim, orig_image_for_ddim, use_prompt_mixing, **kwargs)
-    #     print("attention store keys :", self.controller.step_store.keys())
-    #     print("attention store keys :", self.controller.attention_store.keys())
-    #     orig_mask = Segmentor(self.controller, image_for_ddim['caption'], args.num_segments, args.background_segment_threshold, 
-    #                           background_nouns=args.background_nouns).get_background_mask(image_for_ddim['caption'][-1].split(" ").index("sks")+1)
-    #     average_attention = self.controller.get_average_attention()
-    #     return image, x_T, all_latents, orig_mask, average_attention
