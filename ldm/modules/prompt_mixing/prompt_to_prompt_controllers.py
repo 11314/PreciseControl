@@ -72,10 +72,11 @@ class AttentionStore(AttentionControl):
     @staticmethod
     def get_empty_cross_store():
         return {"input_cross": [], "middle_cross": [], "output_cross": []}
-    # def current_cross_attention(self, attn, is_cross: bool, place_in_unet: str):
-    #     key = f"{place_in_unet}_{'cross' if is_cross else 'self'}"
-    #     if key not in self.current_cross_attention:
-    #         self.current_cross_attention[key] = attn
+        
+    def current_cross_attention(self, attn, is_cross: bool, place_in_unet: str):
+        key = f"{place_in_unet}_{'cross' if is_cross else 'self'}"
+        if key not in self.current_cross_attention:
+            self.current_cross_attention[key] = attn
     
     def get_current_cross_attention(self):
         return self.current_cross_attention
